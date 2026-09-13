@@ -1,11 +1,11 @@
-# @lensui/table
+# @ycxy/lensui-table
 
-`@lensui/table` 是一个面向大数据量的 React 表格组件。主体单元格使用 Canvas 绘制，编辑器、筛选器、菜单和可选中文本使用 DOM 承载，适合需要 10 万行级别滚动、固定列、拖拽、编辑和键盘操作的业务表格。
+`@ycxy/lensui-table` 是一个面向大数据量的 React 表格组件。主体单元格使用 Canvas 绘制，编辑器、筛选器、菜单和可选中文本使用 DOM 承载，适合需要 10 万行级别滚动、固定列、拖拽、编辑和键盘操作的业务表格。
 
 ## 安装
 
 ```bash
-npm install @lensui/table
+npm install @ycxy/lensui-table
 ```
 
 React 和 React DOM 18 或更高版本为 peer dependencies。
@@ -18,8 +18,8 @@ import {
   Table,
   type CellChange,
   type GridColumn,
-} from '@lensui/table';
-import '@lensui/table/style.css';
+} from '@ycxy/lensui-table';
+import '@ycxy/lensui-table/style.css';
 
 interface Row {
   id: number;
@@ -591,7 +591,7 @@ const visibleRows = useMemo(() => {
 如果项目里已经有自己的 i18n 封装，可以把翻译函数的结果映射到 `locale` 对象里传入：
 
 ```tsx
-import { Table, type TableLocaleConfig } from '@lensui/table';
+import { Table, type TableLocaleConfig } from '@ycxy/lensui-table';
 import { useTranslation } from 'react-i18next';
 
 function UserTable() {

@@ -1,5 +1,5 @@
 {
-  "name": "@lensui/tree",
+  "name": "@ycxy/lensui-tree",
   "version": "0.1.0",
   "description": "A clear, type-safe React tree component for LensUI.",
   "type": "module",

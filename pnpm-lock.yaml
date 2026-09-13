@@ -59,40 +59,6 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(jsdom@26.1.0)
 
-  demo:
-    dependencies:
-      '@lensui/table':
-        specifier: workspace:*
-        version: link:../packages/table
-      '@lensui/tree':
-        specifier: workspace:*
-        version: link:../packages/tree
-      lensui:
-        specifier: workspace:*
-        version: link:..
-      react:
-        specifier: ^19.0.0
-        version: 19.3.0
-      react-dom:
-        specifier: ^19.0.0
-        version: 19.3.0(react@19.3.0)
-    devDependencies:
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.3.0
-      '@types/react-dom':
-        specifier: ^19.0.0
-        version: 19.3.0(@types/react@19.3.0)
-      '@vitejs/plugin-react':
-        specifier: ^4.3.0
-        version: 4.7.0(vite@6.4.3)
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vite:
-        specifier: ^6.0.0
-        version: 6.4.3
-
   packages/table:
     dependencies:
       '@ark-ui/react':
