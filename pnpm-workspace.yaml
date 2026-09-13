@@ -1,0 +1,15 @@
+packages:
+  - .
+  - packages/*
+  - demo
+
+allowBuilds:
+  esbuild: true
+
+overrides:
+  baseline-browser-mapping: 2.11.22
+  '@internationalized/date': 3.12.3
+
+confirmModulesPurge: false
+minimumReleaseAge: 0
+verifyDepsBeforeRun: false

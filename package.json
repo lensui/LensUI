@@ -1,0 +1,86 @@
+{
+  "name": "lensui",
+  "version": "0.1.0",
+  "description": "A clear, type-safe React component library with table and tree components.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./table": {
+      "types": "./dist/table.d.ts",
+      "import": "./dist/table.js",
+      "require": "./dist/table.cjs"
+    },
+    "./tree": {
+      "types": "./dist/tree.d.ts",
+      "import": "./dist/tree.js",
+      "require": "./dist/tree.cjs"
+    },
+    "./style.css": "./dist/index.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts src/table.ts src/tree.ts --format esm,cjs --dts --clean --external react --external react-dom",
+    "build:table": "pnpm --filter @lensui/table build",
+    "build:tree": "pnpm --filter @lensui/tree build",
+    "build:packages": "pnpm build:table && pnpm build:tree && pnpm build",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck && pnpm build:packages",
+    "prepublishOnly": "pnpm check"
+  },
+  "keywords": [
+    "react",
+    "components",
+    "table",
+    "tree",
+    "data-grid",
+    "typescript"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@ark-ui/react": "^5.39.1",
+    "@atlaskit/pragmatic-drag-and-drop": "^2.0.1",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
+    "@internationalized/date": "3.12.3"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "jsdom": "^26.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.4",
+    "vitest": "^3.2.4"
+  },
+  "workspaces": [
+    "packages/*",
+    "demo"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "lensui": ["./src/index.ts"],
+      "lensui/table": ["./src/table.ts"],
+      "lensui/tree": ["./src/tree.ts"],
+      "@lensui/table": ["./packages/table/src/index.ts"],
+      "@lensui/table/style.css": ["./packages/table/src/style.css"],
+      "@lensui/tree": ["./packages/tree/src/index.ts"],
+      "@lensui/tree/style.css": ["./packages/tree/src/style.css"]
+    },
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "packages/table/src", "packages/tree/src"],
+  "exclude": ["packages/table/src/__tests__", "packages/tree/src/__tests__", "demo"]
+}
