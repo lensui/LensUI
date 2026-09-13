@@ -1,5 +1,5 @@
 {
-  "name": "@ycxy/lensui",
+  "name": "@lensui/lens",
   "version": "0.1.0",
   "description": "A clear, type-safe React component library with table and tree components.",
   "type": "module",
@@ -34,8 +34,8 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/table.ts src/tree.ts --format esm,cjs --dts --clean --external react --external react-dom",
-    "build:table": "pnpm --filter @ycxy/lensui-table build",
-    "build:tree": "pnpm --filter @ycxy/lensui-tree build",
+    "build:table": "pnpm --filter @lensui/lens-table build",
+    "build:tree": "pnpm --filter @lensui/lens-tree build",
     "build:packages": "pnpm build:table && pnpm build:tree && pnpm build",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck && pnpm build:packages",

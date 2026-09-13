@@ -1,5 +1,5 @@
 {
-  "name": "@ycxy/lensui-table",
+  "name": "@lensui/lens-table",
   "version": "0.1.0",
   "description": "A lightweight, canvas-rendered React table component for LensUI.",
   "type": "module",

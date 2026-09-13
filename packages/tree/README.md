@@ -30,15 +30,15 @@
 ## 安装
 
 ```bash
-npm install @ycxy/lensui
+npm install @lensui/lens
 ```
 
 ```tsx
-import { Tree } from '@ycxy/lensui';
+import { Tree } from '@lensui/lens';
 // 也可以使用单组件子路径
-import { Tree } from '@ycxy/lensui/tree';
+import { Tree } from '@lensui/lens/tree';
 
-import '@ycxy/lensui/style.css';
+import '@lensui/lens/style.css';
 ```
 
 React 和 ReactDOM 是 peer dependency，使用方需要安装 React 18 或更高版本。
@@ -48,8 +48,8 @@ React 和 ReactDOM 是 peer dependency，使用方需要安装 React 18 或更�
 只传 `data` 时，Tree 默认允许点击整行进行单选高亮，不显示选择框；展开状态和选中状态由组件内部维护。
 
 ```tsx
-import { Tree, type TreeNodeData } from '@ycxy/lensui';
-import '@ycxy/lensui/style.css';
+import { Tree, type TreeNodeData } from '@lensui/lens';
+import '@lensui/lens/style.css';
 
 const data: TreeNodeData[] = [
   {
@@ -109,7 +109,7 @@ export function App() {
 
 ```tsx
 import { useState } from 'react';
-import { Tree, type TreeKey, type TreeNodeData } from '@ycxy/lensui';
+import { Tree, type TreeKey, type TreeNodeData } from '@lensui/lens';
 
 export function ControlledTree({ data }: { data: TreeNodeData[] }) {
   const [expandedKeys, setExpandedKeys] = useState<TreeKey[]>([]);
@@ -315,7 +315,7 @@ function AsyncTree() {
 下面的辅助函数演示如何根据 `TreeDropInfo` 不可变移动节点。实际项目也可以在 `onDrop` 中调用后端接口，再用服务端返回的数据替换当前树。
 
 ```ts
-import type { TreeDropInfo, TreeKey, TreeNodeData } from '@ycxy/lensui';
+import type { TreeDropInfo, TreeKey, TreeNodeData } from '@lensui/lens';
 
 function detachTreeNode(
   nodes: TreeNodeData[],

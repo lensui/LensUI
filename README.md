@@ -6,47 +6,47 @@ LensUI is a React component library split into two installable components: Table
 
 | Package | Description |
 | --- | --- |
-| `@ycxy/lensui` | Full package, exporting Table and Tree. |
-| `@ycxy/lensui-table` | Canvas-rendered virtual table component. |
-| `@ycxy/lensui-tree` | Type-safe tree component with selection, search, async loading, drag and drop, and virtual scrolling. |
+| `@lensui/lens` | Full package, exporting Table and Tree. |
+| `@lensui/lens-table` | Canvas-rendered virtual table component. |
+| `@lensui/lens-tree` | Type-safe tree component with selection, search, async loading, drag and drop, and virtual scrolling. |
 
 ## Install
 
 Install the full library:
 
 ```bash
-npm install @ycxy/lensui
+npm install @lensui/lens
 ```
 
 Or install a single component package:
 
 ```bash
-npm install @ycxy/lensui-table
-npm install @ycxy/lensui-tree
+npm install @lensui/lens-table
+npm install @lensui/lens-tree
 ```
 
 ## Usage
 
 ```tsx
-import { Table, Tree } from '@ycxy/lensui';
-import '@ycxy/lensui/style.css';
+import { Table, Tree } from '@lensui/lens';
+import '@lensui/lens/style.css';
 ```
 
 Single component packages:
 
 ```tsx
-import { Table } from '@ycxy/lensui-table';
-import '@ycxy/lensui-table/style.css';
+import { Table } from '@lensui/lens-table';
+import '@lensui/lens-table/style.css';
 
-import { Tree } from '@ycxy/lensui-tree';
-import '@ycxy/lensui-tree/style.css';
+import { Tree } from '@lensui/lens-tree';
+import '@lensui/lens-tree/style.css';
 ```
 
 Full-package subpaths are also available:
 
 ```tsx
-import { Table } from '@ycxy/lensui/table';
-import { Tree } from '@ycxy/lensui/tree';
+import { Table } from '@lensui/lens/table';
+import { Tree } from '@lensui/lens/tree';
 ```
 
 ## Repository Layout
@@ -55,8 +55,8 @@ import { Tree } from '@ycxy/lensui/tree';
 .
 ├── src/              # lensui full-package entrypoints
 ├── packages/
-│   ├── table/        # @ycxy/lensui-table
-│   └── tree/         # @ycxy/lensui-tree
+│   ├── table/        # @lensui/lens-table
+│   └── tree/         # @lensui/lens-tree
 ├── demo/             # local docs/demo app
 ├── pnpm-workspace.yaml
 └── pnpm-lock.yaml
@@ -68,6 +68,6 @@ import { Tree } from '@ycxy/lensui/tree';
 pnpm install
 pnpm typecheck
 pnpm build:packages
-pnpm --filter @ycxy/lensui-table test
-pnpm --filter @ycxy/lensui-tree test
+pnpm --filter @lensui/lens-table test
+pnpm --filter @lensui/lens-tree test
 ```
