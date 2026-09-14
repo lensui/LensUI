@@ -284,7 +284,7 @@ export function Table<Row extends object>({
   // pointer handlers before React has committed the next render.
   const [viewport, setViewport] = useState({ width: 0, height: typeof height === 'number' ? height : FALLBACK_HEIGHT });
   const [horizontalScrollbarHeight, setHorizontalScrollbarHeight] = useState(0);
-  const resolvedHeight = viewport.height || FALLBACK_HEIGHT;
+  const resolvedHeight = typeof height === 'number' ? height : viewport.height || FALLBACK_HEIGHT;
   const [scrollPosition, setScrollPosition] = useState<ScrollPosition>({ left: 0, top: 0 });
   const scrollRef = useRef<ScrollPosition>({ left: 0, top: 0 });
 
@@ -469,14 +469,15 @@ export function Table<Row extends object>({
   }, [columns, metrics]);
   const hasRowSelectionColumn = useMemo(() => columns.some((column) => column.rowSelection), [columns]);
   const rowSelectionMode = typeof rowSelection === 'object' ? rowSelection.mode ?? 'multiple' : 'multiple';
-  const hasSummaryRow = useMemo(() => summaryEnabled && columns.some((column) => Boolean(column.summary)), [columns, summaryEnabled]);
+  const hasSummaryRow = useMemo(() => rows.length > 0 && summaryEnabled && columns.some((column) => Boolean(column.summary)), [columns, rows.length, summaryEnabled]);
   const topSummaryHeight = hasSummaryRow && summaryPosition === 'top' ? rowHeight : 0;
   const bottomSummaryHeight = hasSummaryRow && summaryPosition === 'bottom' ? rowHeight : 0;
   const bodyTop = headerHeight + topSummaryHeight;
   const bodyContentHeight = rows.length === 0 ? EMPTY_BODY_HEIGHT : contentHeight;
   const realContentHeight = bodyTop + bodyContentHeight + bottomSummaryHeight + (contentWidth > viewport.width ? horizontalScrollbarHeight : 0);
   const effectiveHeight = autoHeight ? Math.max(bodyTop + bottomSummaryHeight, Math.min(resolvedHeight, realContentHeight)) : resolvedHeight;
-  const bodyViewportHeight = Math.max(0, effectiveHeight - (fixedHeader ? headerHeight : 0) - topSummaryHeight);
+  const renderHeight = Math.max(0, effectiveHeight - bottomSummaryHeight);
+  const bodyViewportHeight = Math.max(0, renderHeight - (fixedHeader ? headerHeight : 0) - topSummaryHeight);
   const [summaryState, setSummaryState] = useState<{
     columns: InternalGridColumn<Row>[] | null;
     rows: Row[] | null;
@@ -660,7 +661,7 @@ export function Table<Row extends object>({
     if (!canvas || viewport.width <= 0) return;
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     const physicalWidth = Math.round(viewport.width * ratio);
-    const physicalHeight = Math.round(effectiveHeight * ratio);
+    const physicalHeight = Math.round(renderHeight * ratio);
     if (canvas.width !== physicalWidth) canvas.width = physicalWidth;
     if (canvas.height !== physicalHeight) canvas.height = physicalHeight;
     const context = canvas.getContext('2d');
@@ -685,8 +686,8 @@ export function Table<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: effectiveHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, colors: themeColors });
-  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columns, editedCellHighlightColor, editedCellKeys, editing, effectiveHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerHeight, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, colors: themeColors });
+  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerHeight, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -812,14 +813,14 @@ export function Table<Row extends object>({
         const horizontalStart = column.fixed === undefined ? fixedWidth : 0;
         const horizontalEnd = column.fixed === undefined ? viewport.width - rightFixedWidth : viewport.width;
         const verticalStart = fixedHeader ? bodyTop : 0;
-        if (rawRight <= horizontalStart || rawLeft >= horizontalEnd || rawBottom <= verticalStart || rawTop >= effectiveHeight) {
+        if (rawRight <= horizontalStart || rawLeft >= horizontalEnd || rawBottom <= verticalStart || rawTop >= renderHeight) {
           focus.style.display = 'none';
         } else {
           const borderWidth = 2;
           const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart - 1));
           const right = Math.round(Math.min(rawRight + 1, horizontalEnd, viewport.width));
           const top = Math.round(Math.max(rawTop - borderWidth, verticalStart - 1));
-          const bottom = Math.round(Math.min(rawBottom + 1, effectiveHeight));
+          const bottom = Math.round(Math.min(rawBottom + 1, renderHeight));
           focus.style.display = 'block';
           focus.style.left = `${left}px`;
           focus.style.top = `${top}px`;
@@ -844,7 +845,7 @@ export function Table<Row extends object>({
     setHoveredCellTooltip(null);
     scheduleDraw();
     setEditing(null);
-  }, [bodyTop, columns, effectiveHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, metrics, rightFixedOffsets, rightFixedWidth, rowHeight, rows, scheduleDraw, selection, selectionRange, viewport.width]);
+  }, [bodyTop, columns, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, metrics, rightFixedOffsets, rightFixedWidth, rowHeight, rows, scheduleDraw, selection, selectionRange, viewport.width]);
 
   const locateColumn = useCallback((clientX: number): number => {
     const canvas = canvasRef.current;
@@ -1521,13 +1522,13 @@ export function Table<Row extends object>({
       const rowTop = (fixedHeader ? 0 : bodyTop) + rowIndex * rowHeight;
       const rowBottom = rowTop + rowHeight * (span?.rowSpan ?? 1);
       const cellWidth = getCellDisplayWidth(columnIndex, span?.colSpan ?? 1);
-      const visibleRowHeight = fixedHeader ? effectiveHeight - bodyTop : effectiveHeight;
+      const visibleRowHeight = fixedHeader ? renderHeight - bodyTop : renderHeight;
       if (rowTop < scroller.scrollTop) scroller.scrollTop = rowTop;
       if (rowBottom > scroller.scrollTop + visibleRowHeight) scroller.scrollTop = rowBottom - visibleRowHeight;
       if (columns[columnIndex].fixed === undefined && metric.left < scroller.scrollLeft + fixedWidth) scroller.scrollLeft = Math.max(0, metric.left - fixedWidth);
       if (columns[columnIndex].fixed === undefined && metric.left + cellWidth > scroller.scrollLeft + viewport.width - rightFixedWidth) scroller.scrollLeft = metric.left + cellWidth - viewport.width + rightFixedWidth;
     }
-  }, [beginEdit, bodyTop, columns, editing, effectiveHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, metrics, rightFixedWidth, rowHeight, rows, selection, setSelection, viewport.width]);
+  }, [beginEdit, bodyTop, columns, editing, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, metrics, rightFixedWidth, rowHeight, rows, selection, setSelection, viewport.width]);
 
   const editorStyle = useMemo(() => {
     if (!editing) return undefined;
@@ -1781,7 +1782,7 @@ export function Table<Row extends object>({
       type: 'cell',
       ...cell,
       left: Math.min(Math.max(0, clientX - root.left), Math.max(0, viewport.width - 190)),
-      top: Math.min(Math.max(0, clientY - root.top), Math.max(0, effectiveHeight - 350)),
+      top: Math.min(Math.max(0, clientY - root.top), Math.max(0, renderHeight - 350)),
     });
     onCellContextMenu?.({ ...cell, row: rows[cell.rowIndex], clientX, clientY });
   };
@@ -1793,7 +1794,7 @@ export function Table<Row extends object>({
       type: 'header',
       columnIndex,
       left: Math.min(Math.max(0, clientX - root.left), Math.max(0, viewport.width - 180)),
-      top: Math.min(Math.max(0, clientY - root.top), Math.max(0, effectiveHeight - 68)),
+      top: Math.min(Math.max(0, clientY - root.top), Math.max(0, renderHeight - 68)),
     });
   };
 
@@ -2034,7 +2035,7 @@ export function Table<Row extends object>({
       rawLeft <= horizontalStart
       || rawLeft > horizontalEnd
       || rawTop <= verticalStart
-      || rawTop > effectiveHeight
+      || rawTop > renderHeight
     ) return null;
     return { left: rawLeft, top: rawTop, bounds };
   })();
@@ -2057,13 +2058,13 @@ export function Table<Row extends object>({
       rawRight <= horizontalStart
       || rawLeft >= horizontalEnd
       || rawBottom <= verticalStart
-      || rawTop >= effectiveHeight
+      || rawTop >= renderHeight
     ) return null;
     const borderWidth = 2;
     const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart - 1));
     const right = Math.round(Math.min(rawRight + 1, horizontalEnd, viewport.width));
     const top = Math.round(Math.max(rawTop - borderWidth, verticalStart - 1));
-    const bottom = Math.round(Math.min(rawBottom + 1, effectiveHeight));
+    const bottom = Math.round(Math.min(rawBottom + 1, renderHeight));
     return {
       left,
       top,
@@ -2213,10 +2214,12 @@ export function Table<Row extends object>({
   const renderSummaryCell = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
     const isUtility = column.rowSelection || column.rowDragHandle || column.rowNumber;
-    const summaryContent = summaryValues.has(column.key) ? summaryValues.get(column.key) : summaryEmptyValue;
-    const content = column.rowNumber
+    const hasSummaryValue = summaryValues.has(column.key);
+    const summaryContent = hasSummaryValue ? summaryValues.get(column.key) : summaryEmptyValue;
+    const showSummarySkeleton = Boolean(column.summary) && summaryPending;
+    const content = columnIndex === 0
       ? language === 'zh-CN' ? '合计' : 'Total'
-      : summaryPending
+      : showSummarySkeleton
         ? <span className="rvg-summary-skeleton" />
         : summaryContent;
     return (
@@ -2250,7 +2253,7 @@ export function Table<Row extends object>({
         <canvas
           ref={canvasRef}
           className="rvg-canvas"
-          style={{ width: viewport.width, height: effectiveHeight }}
+          style={{ width: viewport.width, height: renderHeight }}
           onMouseMove={(event) => {
             if (columnDragRef.current) return;
             const rect = event.currentTarget.getBoundingClientRect();
@@ -2452,7 +2455,7 @@ export function Table<Row extends object>({
           }}
           onContextMenu={handleContextMenu}
         />
-        <div className="rvg-text-layer" style={{ width: viewport.width, height: effectiveHeight, marginTop: -effectiveHeight }} onContextMenu={handleContextMenu}>
+        <div className="rvg-text-layer" style={{ width: viewport.width, height: renderHeight, marginTop: -renderHeight }} onContextMenu={handleContextMenu}>
           <div className="rvg-text-scroll-clip" style={{ left: fixedWidth, right: rightFixedWidth }}>
             <div
               ref={scrollingTextRef}
@@ -2484,7 +2487,7 @@ export function Table<Row extends object>({
           {columns.map((column, columnIndex) => column.fixed === 'left' ? renderHeaderTitle(columnIndex, metrics[columnIndex].left) : null)}
           {columns.map((column, columnIndex) => column.fixed === 'right' ? renderHeaderTitle(columnIndex, viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metrics[columnIndex].width) : null)}
         </div>
-        <div className="rvg-spacer" style={{ width: contentWidth, height: contentHeight + bodyTop, marginTop: -effectiveHeight }} />
+        <div className="rvg-spacer" style={{ width: contentWidth, height: contentHeight + bodyTop, marginTop: -renderHeight }} />
       </div>
       {hasSummaryRow && (
         <div
@@ -2862,7 +2865,7 @@ export function Table<Row extends object>({
       )}
       {loading && !hasCustomLoading && !hasCompletedLoadRef.current && (
         <div className="rvg-initial-loading" style={{ top: headerHeight }} aria-label={labels.initialLoading}>
-          {Array.from({ length: Math.ceil((effectiveHeight - headerHeight) / rowHeight) }, (_, rowIndex) => (
+          {Array.from({ length: Math.ceil((renderHeight - headerHeight) / rowHeight) }, (_, rowIndex) => (
             <div className="rvg-loading-row" style={{ height: rowHeight }} key={rowIndex}>
               {columns.map((column, columnIndex) => {
                 const left = getDisplayedColumnLeft(columnIndex);
