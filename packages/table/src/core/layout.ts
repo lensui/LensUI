@@ -28,6 +28,11 @@ export interface ColumnMetric {
   right: number;
 }
 
+export interface BuildColumnMetricsOptions {
+  columnDraggable?: boolean;
+  viewportWidth?: number;
+}
+
 function isDataColumn<Row>(column: LayoutColumn<Row>): boolean {
   return !column.rowSelection && !column.rowDragHandle && !column.rowNumber;
 }
@@ -98,10 +103,46 @@ export function getMinimumColumnWidth<Row>(column: LayoutColumn<Row>, columnDrag
  * Build cumulative column positions used by both canvas painting and DOM
  * overlay placement.
  */
-export function buildColumnMetrics<Row>(columns: GridColumn<Row>[], columnDraggable = false): ColumnMetric[] {
+export function buildColumnMetrics<Row>(
+  columns: LayoutColumn<Row>[],
+  columnDraggableOrOptions: boolean | BuildColumnMetricsOptions = false,
+): ColumnMetric[] {
+  const options = typeof columnDraggableOrOptions === 'boolean'
+    ? { columnDraggable: columnDraggableOrOptions }
+    : columnDraggableOrOptions;
+  const columnDraggable = options.columnDraggable ?? false;
   let left = 0;
-  return columns.map((column) => {
+  const metrics = columns.map((column) => {
     const width = Math.max(getMinimumColumnWidth(column, columnDraggable), column.width ?? DEFAULT_COLUMN_WIDTH);
+    const metric = { left, width, right: left + width };
+    left += width;
+    return metric;
+  });
+  const viewportWidth = options.viewportWidth ?? 0;
+  if (viewportWidth <= left || columns.length === 0) return metrics;
+
+  const stretchable = columns
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => column.fixed !== 'right' && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
+  const targets = stretchable.length > 0
+    ? stretchable
+    : columns.map((column, index) => ({ column, index })).filter(({ column }) => column.fixed !== 'right');
+  if (targets.length === 0) return metrics;
+
+  const extra = viewportWidth - left;
+  const baseTotal = targets.reduce((sum, { index }) => sum + metrics[index].width, 0);
+  let assigned = 0;
+  const targetIndexSet = new Set(targets.map(({ index }) => index));
+  const nextWidths = metrics.map((metric, index) => {
+    if (!targetIndexSet.has(index)) return metric.width;
+    const isLastTarget = index === targets[targets.length - 1].index;
+    const addition = isLastTarget ? extra - assigned : Math.floor(extra * (metric.width / baseTotal));
+    assigned += addition;
+    return metric.width + addition;
+  });
+
+  left = 0;
+  return nextWidths.map((width) => {
     const metric = { left, width, right: left + width };
     left += width;
     return metric;

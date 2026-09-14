@@ -21,6 +21,9 @@ interface ChoiceEditorProps {
  * adapts the grid draft lifecycle to the select component API.
  */
 export function ChoiceEditor({ value, options, style, labels, onChange, onCommit, onCancel }: ChoiceEditorProps) {
+  const editorStyle = typeof style.width === 'number'
+    ? { ...style, width: Math.max(0, style.width - 1) }
+    : style;
   // Ark Select expects a collection object rather than a raw array. We build it
   // locally so the parent grid can stay editor-agnostic and only pass column
   // metadata plus the current draft value.
@@ -32,7 +35,7 @@ export function ChoiceEditor({ value, options, style, labels, onChange, onCommit
   return (
     <Select.Root
       className="rvg-choice-editor"
-      style={style}
+      style={editorStyle}
       collection={collection}
       value={value ? [value] : []}
       defaultOpen
