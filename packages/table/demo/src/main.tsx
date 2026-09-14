@@ -520,7 +520,6 @@ function App() {
         columns={columns}
         rows={visibleRows}
         height={620}
-        autoHeight
         loading={loading}
         columnResizable
         sortState={sortState}

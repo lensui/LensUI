@@ -318,7 +318,7 @@ export interface TableProps<Row extends object> {
   width?: number | string;
   /** Grid height. Defaults to 100%; falls back to 480px when the parent has no height. */
   height?: number | string;
-  /** Shrink the grid to its real content height when there are fewer rows than the configured height can display. */
+  /** Shrink the grid to its real content height when there are fewer rows than the configured max height can display. Defaults to true. */
   autoHeight?: boolean;
   rowHeight?: number;
   headerHeight?: number;

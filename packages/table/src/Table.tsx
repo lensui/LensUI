@@ -140,7 +140,7 @@ export function Table<Row extends object>({
   rowKey,
   width = '100%',
   height = '100%',
-  autoHeight = false,
+  autoHeight = true,
   rowHeight = 36,
   headerHeight = 40,
   fixedHeader = true,
