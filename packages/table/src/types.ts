@@ -128,6 +128,13 @@ export interface TableHighlightConfig {
   insertedRows?: boolean | string;
 }
 
+export interface TableLayoutConfig {
+  /** Fixed body row height in pixels. Defaults to 36. */
+  rowHeight?: number;
+  /** Header height in pixels. Defaults to 40. */
+  headerHeight?: number;
+}
+
 export interface TableCellSpan {
   /** Row index in the current rows array. Prefer rowKey when row order can change. */
   rowIndex?: number;
@@ -140,6 +147,21 @@ export interface TableCellSpan {
   /** Number of columns covered by the merged cell. Defaults to 1. */
   colSpan?: number;
 }
+
+export interface TableCellSpanRuleContext<Row extends object> {
+  row: Row;
+  rowIndex: number;
+  column: GridColumn<Row>;
+  columnIndex: number;
+  rows: Row[];
+  columns: GridColumn<Row>[];
+}
+
+export type TableCellSpanRule<Row extends object> = (
+  context: TableCellSpanRuleContext<Row>,
+) => TableCellSpan | Omit<TableCellSpan, 'rowIndex' | 'rowKey' | 'columnKey'> | false | null | undefined;
+
+export type TableCellSpans<Row extends object> = TableCellSpan[] | TableCellSpanRule<Row>;
 
 export interface TableResolvedCellSpan {
   rowIndex: number;
@@ -164,6 +186,8 @@ export interface GridColumn<Row> {
   key: string;
   /** Header label painted in the text layer. */
   title: string;
+  /** Custom React content rendered in the header DOM overlay. */
+  renderHeader?: (column: GridColumn<Row>) => ReactNode;
   /** Row field used as this column's cell value. Omit for utility columns. */
   dataIndex?: keyof Row;
   /** Preferred column width in pixels. Layout helpers enforce minimums. */
@@ -320,18 +344,24 @@ export interface TableProps<Row extends object> {
   height?: number | string;
   /** Shrink the grid to its real content height when there are fewer rows than the configured max height can display. Defaults to true. */
   autoHeight?: boolean;
+  /** Layout and sizing configuration. Prefer this over rowHeight/headerHeight for new code. */
+  layout?: TableLayoutConfig;
+  /** @deprecated Use layout.rowHeight instead. */
   rowHeight?: number;
+  /** @deprecated Use layout.headerHeight instead. */
   headerHeight?: number;
   fixedHeader?: boolean;
   locale?: TableLocaleConfig;
-  /** Hide vertical grid lines while keeping horizontal row separators. */
+  /** Hide vertical grid lines while keeping horizontal row separators. Prefer borderless for new code. */
+  borderless?: boolean;
+  /** @deprecated Use borderless instead. */
   verticalBorderless?: boolean;
   /** Paint alternating row backgrounds. Pass a color string to customize the stripe color. */
   striped?: boolean | string;
   /** Visual highlight feedback configuration. All entries default to false. */
   highlight?: TableHighlightConfig;
   /** Merged body cell configuration. Utility columns are ignored and horizontal spans are limited to the same fixed column region. */
-  cellSpans?: TableCellSpan[];
+  cellSpans?: TableCellSpans<Row>;
   loading?: boolean;
   /** Custom loading content. When provided, it is used for both initial loading and refresh loading. */
   loadingContent?: ReactNode;

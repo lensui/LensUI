@@ -136,6 +136,11 @@ const initialColumns: GridColumn<Person>[] = [
     editable: true,
     sortable: true,
     filterable: true,
+    // renderHeader: (column) => (
+    //   <div>{column.title}
+    //   <div>123</div>
+    //   </div>
+    // ),
   },
   {
     key: "department",

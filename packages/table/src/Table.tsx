@@ -16,11 +16,19 @@ import { getDisplayLabel } from './core/format';
 import { buildColumnMetrics, getHeaderTitleRequiredWidth, getMinimumColumnWidth, getViewportRange, getVisibleHeaderActions, hitTestColumn } from './core/layout';
 import { paintGrid } from './core/render';
 import { useControllableKeys, useControllableValue } from './hooks/useControllable';
-import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableProps, TableResolvedCellSpan, ViewportRange } from './types';
+import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableResolvedCellSpan, ViewportRange } from './types';
 
 interface ScrollPosition { left: number; top: number }
 type ColumnDrag =
-  { type: 'resize'; columnIndex: number; startX: number; startWidth: number };
+  {
+    type: 'resize';
+    columnIndex: number;
+    startX: number;
+    startWidth: number;
+    startGuideX: number;
+    neighborIndex: number;
+    startNeighborWidth: number;
+  };
 type ConfirmAction<Row> =
   | { type: 'undo'; cell: GridSelection; row: Row; dataIndex: keyof Row; previousValue: unknown; value: unknown }
   | { type: 'clear'; cell: GridSelection; row: Row; dataIndex: keyof Row; previousValue: unknown }
@@ -141,11 +149,13 @@ export function Table<Row extends object>({
   width = '100%',
   height = '100%',
   autoHeight = true,
-  rowHeight = 36,
-  headerHeight = 40,
+  layout,
+  rowHeight: rowHeightProp,
+  headerHeight: headerHeightProp,
   fixedHeader = true,
   locale = 'zh-CN',
-  verticalBorderless = false,
+  borderless,
+  verticalBorderless,
   striped = false,
   highlight,
   cellSpans = [],
@@ -187,8 +197,13 @@ export function Table<Row extends object>({
   style,
   ariaLabel = 'Data grid',
 }: TableProps<Row>) {
+  const rowHeight = layout?.rowHeight ?? rowHeightProp ?? 36;
+  const baseHeaderHeight = layout?.headerHeight ?? headerHeightProp ?? 40;
   const { language, labels } = useMemo(() => resolveGridLocale(locale), [locale]);
-  const hasVerticalBorders = !verticalBorderless;
+  const customHeaderContentRefs = useRef(new Map<string, HTMLElement>());
+  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(0);
+  const headerHeight = Math.max(baseHeaderHeight, measuredHeaderHeight);
+  const hasVerticalBorders = !(borderless ?? verticalBorderless ?? false);
   const hasStripedRows = Boolean(striped);
   const stripedColor = typeof striped === 'string' ? striped : undefined;
   const editedCellsHighlight = highlight?.editedCells ?? false;
@@ -339,6 +354,30 @@ export function Table<Row extends object>({
     if (cellTooltipTimerRef.current !== null) clearTimeout(cellTooltipTimerRef.current);
   }, []);
 
+  const measureCustomHeaderHeight = useCallback(() => {
+    let nextHeight = 0;
+    customHeaderContentRefs.current.forEach((node) => {
+      nextHeight = Math.max(nextHeight, Math.ceil(node.scrollHeight) + 16);
+    });
+    setMeasuredHeaderHeight((current) => (current === nextHeight ? current : nextHeight));
+  }, []);
+
+  useLayoutEffect(() => {
+    const activeCustomHeaderKeys = new Set(columns.filter((column) => column.renderHeader).map((column) => column.key));
+    customHeaderContentRefs.current.forEach((_, key) => {
+      if (!activeCustomHeaderKeys.has(key)) customHeaderContentRefs.current.delete(key);
+    });
+    if (customHeaderContentRefs.current.size === 0) {
+      setMeasuredHeaderHeight(0);
+      return;
+    }
+    measureCustomHeaderHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measureCustomHeaderHeight);
+    customHeaderContentRefs.current.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [columns, measureCustomHeaderHeight, viewport.width]);
+
   const [filterEditor, setFilterEditor] = useState<{ columnIndex: number; left: number; top: number; draft: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<
     | { type: 'header'; columnIndex: number; left: number; top: number }
@@ -351,6 +390,7 @@ export function Table<Row extends object>({
   const [insertBusy, setInsertBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
   const [hoveredHeaderAction, setHoveredHeaderAction] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
   const [visibleHeaderTooltip, setVisibleHeaderTooltip] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
   const [hoveredCellTooltip, setHoveredCellTooltip] = useState<{ rowIndex: number; columnIndex: number; left: number; top: number; label: string; color?: string; annotation?: boolean; placement?: 'left' | 'right' } | null>(null);
@@ -547,15 +587,31 @@ export function Table<Row extends object>({
     rowIndexByKeyRef.current.set(key, index);
     return key;
   }, [getDataRowKey]);
+  const resolvedCellSpans = useMemo(() => {
+    if (Array.isArray(cellSpans)) return cellSpans;
+    const spans: TableCellSpan[] = [];
+    rows.forEach((row, rowIndex) => {
+      columns.forEach((column, columnIndex) => {
+        const span = cellSpans({ row, rowIndex, column, columnIndex, rows, columns });
+        if (!span) return;
+        spans.push({
+          rowIndex,
+          columnKey: column.key,
+          ...span,
+        });
+      });
+    });
+    return spans;
+  }, [cellSpans, columns, rows]);
   const cellSpanLookup = useMemo<CellSpanLookup>(() => {
-    if (cellSpans.length === 0) return createEmptyCellSpanLookup();
+    if (resolvedCellSpans.length === 0) return createEmptyCellSpanLookup();
     const rowIndexByKey = new Map<GridKey, number>();
     rows.forEach((row, index) => rowIndexByKey.set(getRowKey(row, index), index));
     const columnIndexByKey = new Map(columns.map((column, index) => [column.key, index] as const));
     const lookup = createEmptyCellSpanLookup();
     const occupied = new Set<string>();
 
-    for (const span of cellSpans) {
+    for (const span of resolvedCellSpans) {
       const rowIndex = span.rowKey !== undefined ? rowIndexByKey.get(span.rowKey) : span.rowIndex;
       const columnIndex = columnIndexByKey.get(span.columnKey);
       if (rowIndex === undefined || columnIndex === undefined) continue;
@@ -603,7 +659,7 @@ export function Table<Row extends object>({
       }
     }
     return lookup;
-  }, [cellSpans, columns, getRowKey, rows]);
+  }, [columns, getRowKey, resolvedCellSpans, rows]);
   const selectedRowKeySet = useMemo(() => new Set(rowKeys), [rowKeys]);
   const selectedColumnKeySet = useMemo(() => new Set(columnKeys), [columnKeys]);
   const insertedRowKeySet = useMemo(() => insertedRowKeys, [insertedRowKeys]);
@@ -889,6 +945,17 @@ export function Table<Row extends object>({
     }
     return closest;
   }, [columnResizable, columns, getDisplayedColumnLeft, metrics]);
+
+  const findResizeNeighbor = useCallback((columnIndex: number): number => {
+    const resizedColumn = columns[columnIndex];
+    for (let index = columnIndex + 1; index < columns.length; index += 1) {
+      const column = columns[index];
+      if (column.rowSelection || column.rowDragHandle || column.rowNumber) continue;
+      if (resizedColumn?.fixed && column.fixed !== resizedColumn.fixed) return -1;
+      return index;
+    }
+    return -1;
+  }, [columns]);
 
   const locateHeaderAction = useCallback((clientX: number, columnIndex: number): 'sort' | 'filter' | null => {
     if (columnIndex < 0 || !canvasRef.current) return null;
@@ -1559,28 +1626,50 @@ export function Table<Row extends object>({
     if (resizeIndex >= 0) {
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
-      columnDragRef.current = { type: 'resize', columnIndex: resizeIndex, startX: event.clientX, startWidth: metrics[resizeIndex].width };
+      const neighborIndex = findResizeNeighbor(resizeIndex);
+      const startGuideX = getDisplayedColumnLeft(resizeIndex) + metrics[resizeIndex].width;
+      columnDragRef.current = {
+        type: 'resize',
+        columnIndex: resizeIndex,
+        startX: event.clientX,
+        startWidth: metrics[resizeIndex].width,
+        startGuideX,
+        neighborIndex,
+        startNeighborWidth: neighborIndex >= 0 ? metrics[neighborIndex].width : 0,
+      };
       suppressClickRef.current = true;
-      setDragGuide(getDisplayedColumnLeft(resizeIndex) + metrics[resizeIndex].width);
+      setResizeGuideX(startGuideX);
       return;
     }
-  }, [fixedHeader, getDisplayedColumnLeft, headerHeight, locateResizeHandle, metrics, setDragGuide]);
+  }, [findResizeNeighbor, fixedHeader, getDisplayedColumnLeft, headerHeight, locateResizeHandle, metrics]);
 
   const handleColumnPointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = columnDragRef.current;
     if (!drag) return;
-    const width = Math.max(getMinimumColumnWidth(columns[drag.columnIndex], columnDraggable), Math.round(drag.startWidth + event.clientX - drag.startX));
-    onColumnResize?.(columns[drag.columnIndex].key, width);
-    setDragGuide(getDisplayedColumnLeft(drag.columnIndex) + width);
-  }, [columnDraggable, columns, getDisplayedColumnLeft, onColumnResize, setDragGuide]);
+    const column = columns[drag.columnIndex];
+    const minWidth = getMinimumColumnWidth(column, columnDraggable);
+    let delta = Math.round(event.clientX - drag.startX);
+    if (drag.neighborIndex >= 0) {
+      const neighbor = columns[drag.neighborIndex];
+      const minNeighborWidth = getMinimumColumnWidth(neighbor, columnDraggable);
+      delta = Math.max(minWidth - drag.startWidth, Math.min(drag.startNeighborWidth - minNeighborWidth, delta));
+      onColumnResize?.(column.key, drag.startWidth + delta);
+      onColumnResize?.(neighbor.key, drag.startNeighborWidth - delta);
+      setResizeGuideX(drag.startGuideX + delta);
+      return;
+    }
+    const width = Math.max(minWidth, Math.round(drag.startWidth + delta));
+    onColumnResize?.(column.key, width);
+    setResizeGuideX(drag.startGuideX + width - drag.startWidth);
+  }, [columnDraggable, columns, onColumnResize]);
 
   const handleColumnPointerUp = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = columnDragRef.current;
     if (!drag) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     columnDragRef.current = null;
-    setDragGuide(null);
-  }, [setDragGuide]);
+    setResizeGuideX(null);
+  }, []);
 
   const queueSortStateChange = useCallback((next: typeof displaySortState) => {
     setDisplaySortState(next);
@@ -2013,6 +2102,33 @@ export function Table<Row extends object>({
           style={{ left, top: fixedHeader ? 0 : -currentScrollTop, width: metrics[columnIndex].width, height: headerHeight }}
         >
           <SelectionIcon checked={allSelected} indeterminate={indeterminate} />
+        </div>
+      );
+    }
+    if (column.renderHeader) {
+      const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
+      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18;
+      return (
+        <div
+          key={column.key}
+          className="rvg-header-title is-custom"
+          style={{
+            left,
+            top: fixedHeader ? 0 : -currentScrollTop,
+            width: Math.max(0, metrics[columnIndex].width - actionWidth),
+            height: headerHeight,
+            justifyContent: column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start',
+            textAlign: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
+          }}
+        >
+          <span
+            ref={(node) => {
+              if (node) customHeaderContentRefs.current.set(column.key, node);
+              else customHeaderContentRefs.current.delete(column.key);
+            }}
+          >
+            {column.renderHeader(column)}
+          </span>
         </div>
       );
     }
@@ -2813,6 +2929,12 @@ export function Table<Row extends object>({
       )}
       {toast && <div className={`rvg-toast is-${toast.type}`} role="status">{toast.message}</div>}
       <div ref={dragGuideRef} className="rvg-column-guide" />
+      {resizeGuideX !== null && (
+        <div
+          className="rvg-column-guide is-resizing"
+          style={{ display: 'block', transform: `translateX(${Math.round(resizeGuideX)}px)` }}
+        />
+      )}
       <div ref={rowDragGuideRef} className="rvg-row-guide" />
       {filterEditor && (
         <div ref={filterRef} className="rvg-filter" style={{ left: filterEditor.left, top: filterEditor.top }}>

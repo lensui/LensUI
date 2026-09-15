@@ -8,17 +8,49 @@ describe('virtual layout', () => {
     expect(metrics).toEqual([{ left: 0, right: 100, width: 100 }, { left: 100, right: 300, width: 200 }, { left: 300, right: 380, width: 80 }]);
   });
 
-  it('stretches non-right data columns when the viewport is wider than the content', () => {
+  it('stretches non-fixed data columns when the viewport is wider than the content', () => {
     const stretched = buildColumnMetrics([
       { key: 'name', title: 'Name', width: 100, fixed: 'left' },
-      { key: 'department', title: 'Department', width: 100 },
+      { key: 'department', title: 'Department' },
       { key: 'amount', title: 'Amount', width: 100, fixed: 'right' },
     ], { viewportWidth: 600 });
 
     expect(stretched).toEqual([
-      { left: 0, right: 250, width: 250 },
-      { left: 250, right: 500, width: 250 },
+      { left: 0, right: 100, width: 100 },
+      { left: 100, right: 500, width: 400 },
       { left: 500, right: 600, width: 100 },
+    ]);
+  });
+
+  it('keeps left fixed columns out of automatic stretch targets', () => {
+    const stretched = buildColumnMetrics([
+      { key: 'name', title: 'Name', fixed: 'left' },
+      { key: 'department', title: 'Department', width: 120 },
+      { key: 'role', title: 'Role', width: 120 },
+      { key: 'amount', title: 'Amount', width: 100, fixed: 'right' },
+    ], { viewportWidth: 600 });
+
+    expect(stretched).toEqual([
+      { left: 0, right: 140, width: 140 },
+      { left: 140, right: 320, width: 180 },
+      { left: 320, right: 500, width: 180 },
+      { left: 500, right: 600, width: 100 },
+    ]);
+  });
+
+  it('keeps manually sized data columns stable when stretching the remaining space', () => {
+    const stretched = buildColumnMetrics([
+      { key: 'name', title: 'Name', width: 180 },
+      { key: 'department', title: 'Department' },
+      { key: 'role', title: 'Role', width: 160 },
+      { key: 'amount', title: 'Amount', width: 100, fixed: 'right' },
+    ], { viewportWidth: 700 });
+
+    expect(stretched).toEqual([
+      { left: 0, right: 180, width: 180 },
+      { left: 180, right: 440, width: 260 },
+      { left: 440, right: 600, width: 160 },
+      { left: 600, right: 700, width: 100 },
     ]);
   });
 

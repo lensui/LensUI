@@ -331,7 +331,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
     if (!verticalBorderless) ctx.fillRect(x + metric.width - 1, headerY, 1, headerHeight);
     ctx.fillRect(x, headerY + headerHeight - 1, metric.width, 1);
     const column = columns[columnIndex];
-    if (!column.rowSelection && !column.rowDragHandle && !column.rowNumber && column.title) {
+    if (!column.rowSelection && !column.rowDragHandle && !column.rowNumber && !column.renderHeader && column.title) {
       ctx.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
       const titleWidth = ctx.measureText(column.title).width;
       const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth);

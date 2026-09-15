@@ -121,12 +121,17 @@ export function buildColumnMetrics<Row>(
   const viewportWidth = options.viewportWidth ?? 0;
   if (viewportWidth <= left || columns.length === 0) return metrics;
 
-  const stretchable = columns
+  const unsetWidthStretchable = columns
     .map((column, index) => ({ column, index }))
-    .filter(({ column }) => column.fixed !== 'right' && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
-  const targets = stretchable.length > 0
-    ? stretchable
-    : columns.map((column, index) => ({ column, index })).filter(({ column }) => column.fixed !== 'right');
+    .filter(({ column }) => column.width === undefined && column.fixed === undefined && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
+  const dataStretchable = columns
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => column.fixed === undefined && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
+  const targets = unsetWidthStretchable.length > 0
+    ? unsetWidthStretchable
+    : dataStretchable.length > 0
+      ? dataStretchable
+      : [];
   if (targets.length === 0) return metrics;
 
   const extra = viewportWidth - left;

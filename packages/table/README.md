@@ -89,14 +89,16 @@ export function Example() {
 | `rowKey`                     | `keyof Row \| ((row, index) => string \| number)`                                    | `id`            | 行唯一标识。默认读取每行的`id` 字段；如果数据不是 `id` 主键，请显式传入字段名或函数。                                               |
 | `width`                      | `number \| string`                                                                  | `100%`          | 表格宽度。数字按像素处理，字符串可传`100%`、`80vw` 等。                                                                             |
 | `height`                     | `number \| string`                                                                  | `100%`          | 表格最大高度。默认继承父容器高度；如果父容器没有可计算高度，则回落到`480px`。数据较少时默认按真实内容高度收缩，数据较多时不超过该高度。 |
-| `rowHeight`                  | `number`                                                                           | `40`            | 每行高度，固定行高用于高性能虚拟滚动。                                                                                                  |
-| `headerHeight`               | `number`                                                                           | `44`            | 表头高度，单位 px。                                                                                                                     |
+| `layout`                     | `{ rowHeight?: number; headerHeight?: number }`                                    | `{ rowHeight: 36, headerHeight: 40 }` | 表格布局尺寸配置。推荐把行高、表头高度等样式相关参数放在这里；自定义多行表头会以 `headerHeight` 为最小高度自动撑开。              |
+| `rowHeight`                  | `number`                                                                           | `36`            | 已兼容保留，建议改用 `layout.rowHeight`。                                                                                                  |
+| `headerHeight`               | `number`                                                                           | `40`            | 已兼容保留，建议改用 `layout.headerHeight`。                                                                                              |
 | `fixedHeader`                | `boolean`                                                                          | `true`          | 表头是否固定在顶部。                                                                                                                    |
 | `locale`                     | `'zh-CN' \| 'en-US' \| LocaleConfig`                                                 | `'zh-CN'`       | 国际化配置。传字符串时使用内置中英文文案；传对象时可通过`language` 指定语言，并通过 `labels` 覆盖文案。                             |
-| `verticalBorderless`         | `boolean`                                                                          | `false`         | 是否弱化竖向边框。开启后隐藏单元格之间的竖线，但保留横向分隔线。                                                                        |
+| `borderless`                 | `boolean`                                                                          | `false`         | 是否弱化竖向边框。开启后隐藏单元格之间的竖线，但保留横向分隔线。                                                                        |
+| `verticalBorderless`         | `boolean`                                                                          | `false`         | 已兼容保留，建议改用 `borderless`。                                                                                                      |
 | `striped`                    | `boolean \| string`                                                                 | `false`         | 是否显示斑马纹行背景。传`true` 使用主题变量，传颜色字符串可自定义斑马纹颜色，例如 `'#f6faff'`。                                     |
 | `highlight`                  | `{ editedCells?: boolean \| string; insertedRows?: boolean \| string }`             | `{}`            | 高亮反馈配置。`editedCells` 控制编辑过的单元格底色，`insertedRows` 控制乐观插入行底色；传 `true` 使用默认色，传颜色字符串可自定义。   |
-| `cellSpans`                  | `Array<{ rowKey?: GridKey; rowIndex?: number; columnKey: string; rowSpan?: number; colSpan?: number }>` | `[]`            | 合并主体单元格配置。推荐使用 `rowKey` 定位；横向合并会限制在同一个固定列分区内，工具列不会参与合并。                                  |
+| `cellSpans`                  | `TableCellSpan[] \| ((ctx) => TableCellSpan \| { rowSpan?: number; colSpan?: number } \| null)` | `[]`            | 合并主体单元格配置。可传数组，也可传函数按单元格生成规则。推荐使用 `rowKey` 定位；横向合并会限制在同一个固定列分区内，工具列不会参与合并。 |
 | `loading`                    | `boolean`                                                                          | `false`         | 显示加载态。                                                                                                                            |
 | `loadingContent`             | `ReactNode`                                                                        | -                 | 自定义加载内容。传入后，首次加载和刷新加载不再区分，都会统一展示这个内容。                                                              |
 | `virtualized`                | `boolean \| { enabled?: boolean; overscan?: number }`                               | `true`          | 虚拟渲染配置。传`false` 时渲染全部行列；传对象时可通过 `enabled` 开关，并用 `overscan` 配置可见范围外的缓冲行列数量，默认 `4`。 |
@@ -168,6 +170,19 @@ export function Example() {
 />
 ```
 
+也可以传函数按单元格声明规则。函数返回值会默认使用当前单元格作为锚点，因此只需要返回跨度：
+
+```tsx
+<Table
+  columns={columns}
+  rows={rows}
+  cellSpans={({ rowIndex, column }) => {
+    if (column.key === 'department' && rowIndex % 3 === 0) return { rowSpan: 2 };
+    return null;
+  }}
+/>
+```
+
 `rowKey` 优先于 `rowIndex`，在排序、过滤或插入删除行后更稳定。被合并覆盖的单元格不会单独绘制或命中，点击覆盖区域会选中合并区域的锚点单元格。横向合并不会跨越固定左列、滚动列、固定右列这三个区域；如果声明跨区，组件会自动收缩到当前区域内。
 
 ## Column 参数
@@ -176,6 +191,7 @@ export function Example() {
 | -------------- | -------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------- |
 | `key`        | `string`                                                                 | 必填                 | 列唯一标识。排序、筛选、选择、编辑回调都使用它。                                            |
 | `title`      | `string`                                                                 | 必填                 | 表头展示文本。                                                                              |
+| `renderHeader` | `(column) => ReactNode`                                                | -                    | 自定义表头 React 内容。多行内容会自动撑开表头高度；`title` 仍用于 tooltip、拖拽预览和回退文本。 |
 | `dataIndex`  | `keyof Row`                                                              | -                    | 从行数据中读取和写入的字段。工具列可不传。                                                  |
 | `width`      | `number`                                                                 | `140`              | 列宽，单位 px。最小宽度由内部布局保护。                                                     |
 | `fixed`      | `'left' \| 'right'`                                                       | -                    | 固定列位置。左/右固定列会覆盖滚动列并显示阴影。                                             |
