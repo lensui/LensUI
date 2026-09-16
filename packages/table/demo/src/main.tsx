@@ -48,7 +48,9 @@ const createInsertedRowId = () =>
 
 const waitForNextPaint = () =>
   new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() => resolve()),
+    );
   });
 
 const filterRowsInChunks = async (
@@ -70,17 +72,17 @@ const filterRowsInChunks = async (
 
 const scheduleAfterPaint = (callback: () => void | Promise<void>) =>
   new Promise<void>((resolve, reject) => {
-  window.requestAnimationFrame(() => {
     window.requestAnimationFrame(() => {
-      const requestIdleCallback = window.requestIdleCallback;
-      const run = () => {
-        Promise.resolve(callback()).then(resolve, reject);
-      };
-      if (requestIdleCallback) requestIdleCallback(run, { timeout: 120 });
-      else window.setTimeout(run, 0);
+      window.requestAnimationFrame(() => {
+        const requestIdleCallback = window.requestIdleCallback;
+        const run = () => {
+          Promise.resolve(callback()).then(resolve, reject);
+        };
+        if (requestIdleCallback) requestIdleCallback(run, { timeout: 120 });
+        else window.setTimeout(run, 0);
+      });
     });
   });
-});
 
 const insertRowsInChunks = async (
   source: Person[],
@@ -96,7 +98,9 @@ const insertRowsInChunks = async (
   next.push(...additions);
   await waitForNextPaint();
   for (let start = index; start < source.length; start += chunkSize) {
-    next.push(...source.slice(start, Math.min(source.length, start + chunkSize)));
+    next.push(
+      ...source.slice(start, Math.min(source.length, start + chunkSize)),
+    );
     await waitForNextPaint();
   }
   return next;
@@ -127,7 +131,7 @@ class DemoErrorBoundary extends Component<
   }
 }
 
-const initialColumns: GridColumn<Person>[] = [
+const columns: GridColumn<Person>[] = [
   {
     key: "name",
     title: "姓名",
@@ -136,11 +140,6 @@ const initialColumns: GridColumn<Person>[] = [
     editable: true,
     sortable: true,
     filterable: true,
-    // renderHeader: (column) => (
-    //   <div>{column.title}
-    //   <div>123</div>
-    //   </div>
-    // ),
   },
   {
     key: "department",
@@ -309,6 +308,7 @@ const initialColumns: GridColumn<Person>[] = [
     editable: true,
     sortable: true,
     filterable: true,
+    fixed: "right",
   },
   {
     key: "amount",
@@ -316,11 +316,11 @@ const initialColumns: GridColumn<Person>[] = [
     dataIndex: "amount",
     width: 160,
     align: "right",
-    fixed: "right",
     editable: true,
     summary: true,
     sortable: true,
     filterable: true,
+    fixed: "right",
     formatter: (value) =>
       value === "" || value == null
         ? ""
@@ -337,7 +337,7 @@ const initialColumns: GridColumn<Person>[] = [
 function App() {
   const initialRows = useMemo<Person[]>(
     () =>
-      Array.from({ length: 100 }, (_, index) => ({
+      Array.from({ length: 100000 }, (_, index) => ({
         id: index + 1,
         name: `用户 ${index + 1}`,
         department: ["研发", "设计", "市场"][index % 3],
@@ -363,7 +363,7 @@ function App() {
   );
   const [rows, setRows] = useState(initialRows);
   const rowsRef = useRef(rows);
-  const [columns, setColumns] = useState(initialColumns);
+  const [tableColumns, setTableColumns] = useState(columns);
   const [sortState, setSortState] = useState<GridSortState | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -406,16 +406,36 @@ function App() {
       return sortState.direction === "asc" ? result : -result;
     });
   }, [activeFilters, rows, sortState]);
-  const [visibleRowsOverride, setVisibleRowsOverride] = useState<Person[] | null>(null);
+  const [visibleRowsOverride, setVisibleRowsOverride] = useState<
+    Person[] | null
+  >(null);
   const visibleRows = visibleRowsOverride ?? computedVisibleRows;
-  const cellSpans = useMemo<TableCellSpan[]>(() => [
-    { rowKey: visibleRows[2]?.id, columnKey: "role", rowSpan: 2, colSpan: 1 },
-    { rowKey: visibleRows[7]?.id, columnKey: "department", rowSpan: 1, colSpan: 2 },
-  ].filter((span) => span.rowKey !== undefined), [visibleRows]);
+  const cellSpans = useMemo<TableCellSpan[]>(
+    () =>
+      [
+        {
+          rowKey: visibleRows[2]?.id,
+          columnKey: "role",
+          rowSpan: 2,
+          colSpan: 1,
+        },
+        {
+          rowKey: visibleRows[7]?.id,
+          columnKey: "department",
+          rowSpan: 1,
+          colSpan: 2,
+        },
+      ].filter((span) => span.rowKey !== undefined),
+    [visibleRows],
+  );
   useEffect(() => {
     setVisibleRowsOverride(null);
   }, [computedVisibleRows]);
-  const handleChange = async ({ row, columnKey, value }: CellChange<Person>) => {
+  const handleChange = async ({
+    row,
+    columnKey,
+    value,
+  }: CellChange<Person>) => {
     setRows((current) => {
       const next = current.slice();
       const rowIndex = next.findIndex((item) => item.id === row.id);
@@ -425,19 +445,87 @@ function App() {
     });
     await waitForNextPaint();
   };
-  const reorderColumns = (sourceIndex: number, targetIndex: number) =>
-    setColumns((current) => {
-      const next = current.slice();
-      const [column] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, column);
-      return next;
-    });
   const resizeColumn = (columnKey: string, width: number) =>
-    setColumns((current) =>
-      current.map((column) =>
-        column.key === columnKey ? { ...column, width } : column,
-      ),
-    );
+    setTableColumns((current) => {
+      const resize = (items: GridColumn<Person>[]): GridColumn<Person>[] =>
+        items.map((column) => {
+          if (column.key === columnKey) return { ...column, width };
+          if (column.children)
+            return { ...column, children: resize(column.children) };
+          return column;
+        });
+      return resize(current);
+    });
+  const reorderColumns = (
+    sourceIndex: number,
+    targetIndex: number,
+    detail?: {
+      type: "column" | "group";
+      sourceKey: string;
+      targetKey: string;
+      parentKey?: string;
+      placement: "before" | "after";
+    },
+  ) =>
+    setTableColumns((current) => {
+      if (!detail) return current;
+      const insertIndex = (sourceIndex: number, targetIndex: number) => {
+        let nextIndex = targetIndex + (detail.placement === "after" ? 1 : 0);
+        if (sourceIndex < nextIndex) nextIndex -= 1;
+        return nextIndex;
+      };
+      if (detail.type === "group") {
+        const sourceIndex = current.findIndex(
+          (column) => column.key === detail.sourceKey,
+        );
+        const targetIndex = current.findIndex(
+          (column) => column.key === detail.targetKey,
+        );
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
+          return current;
+        const next = current.slice();
+        const [column] = next.splice(sourceIndex, 1);
+        next.splice(insertIndex(sourceIndex, targetIndex), 0, column);
+        return next;
+      }
+      if (!detail.parentKey) {
+        const sourceIndex = current.findIndex(
+          (column) => column.key === detail.sourceKey,
+        );
+        const targetIndex = current.findIndex(
+          (column) => column.key === detail.targetKey,
+        );
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
+          return current;
+        const next = current.slice();
+        const [column] = next.splice(sourceIndex, 1);
+        next.splice(insertIndex(sourceIndex, targetIndex), 0, column);
+        return next;
+      }
+      const reorderInGroup = (
+        items: GridColumn<Person>[],
+      ): GridColumn<Person>[] =>
+        items.map((column) => {
+          if (column.key !== detail.parentKey || !column.children) {
+            return column.children
+              ? { ...column, children: reorderInGroup(column.children) }
+              : column;
+          }
+          const sourceIndex = column.children.findIndex(
+            (child) => child.key === detail.sourceKey,
+          );
+          const targetIndex = column.children.findIndex(
+            (child) => child.key === detail.targetKey,
+          );
+          if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
+            return column;
+          const children = column.children.slice();
+          const [child] = children.splice(sourceIndex, 1);
+          children.splice(insertIndex(sourceIndex, targetIndex), 0, child);
+          return { ...column, children };
+        });
+      return reorderInGroup(current);
+    });
   const reorderRows = (sourceIndex: number, targetIndex: number) =>
     setRows((current) => {
       const next = current.slice();
@@ -445,47 +533,63 @@ function App() {
       next.splice(targetIndex, 0, row);
       return next;
     });
-  const insertRows = async ({ rowIndex, row, position, count, insertedRows }: InsertRowsEvent<Person>) => {
+  const insertRows = async ({
+    rowIndex,
+    row,
+    position,
+    count,
+    insertedRows,
+  }: InsertRowsEvent<Person>) => {
     const current = rowsRef.current;
     const matchedIndex = current.findIndex((item) => item.id === row.id);
     const anchor = matchedIndex >= 0 ? matchedIndex : rowIndex;
     if (anchor < 0) return;
-    const additions: Person[] = insertedRows ?? Array.from({ length: count }, () => ({
-      id: createInsertedRowId(),
-      name: "",
-      department: "",
-      city: "",
-      role: "",
-      status: "",
-      email: "",
-      phone: "",
-      joinedAt: "",
-      workTime: "",
-      appointmentAt: "",
-      year: "",
-      month: "",
-      dateRange: "",
-      timeRange: "",
-      dateTimeRange: "",
-      score: "",
-      amount: "",
-      projects: "",
-      hours: "",
-    }));
+    const additions: Person[] =
+      insertedRows ??
+      Array.from({ length: count }, () => ({
+        id: createInsertedRowId(),
+        name: "",
+        department: "",
+        city: "",
+        role: "",
+        status: "",
+        email: "",
+        phone: "",
+        joinedAt: "",
+        workTime: "",
+        appointmentAt: "",
+        year: "",
+        month: "",
+        dateRange: "",
+        timeRange: "",
+        dateTimeRange: "",
+        score: "",
+        amount: "",
+        projects: "",
+        hours: "",
+      }));
     const insertIndex = anchor + (position === "after" ? 1 : 0);
     const next = await insertRowsInChunks(current, insertIndex, additions);
     setRows(next);
   };
-  const deleteRows = async ({ rows: targets, viewportRange }: DeleteRowsEvent<Person>) => {
+  const deleteRows = async ({
+    rows: targets,
+    viewportRange,
+  }: DeleteRowsEvent<Person>) => {
     const ids = new Set(targets.map(({ row }) => row.id));
     if (viewportRange) {
       const { rowStart, rowEnd } = viewportRange;
       setVisibleRowsOverride((current) => {
         const source = current ?? computedVisibleRows;
         const next = source.slice();
-        const visibleWindow = next.slice(rowStart, rowEnd).filter((row) => !ids.has(row.id));
+        const visibleWindow = next
+          .slice(rowStart, rowEnd)
+          .filter((row) => !ids.has(row.id));
         let cursor = rowEnd;
-        while (visibleWindow.length < rowEnd - rowStart && cursor < source.length) {
+        while (
+          visibleWindow.length < rowEnd - rowStart &&
+          cursor < source.length
+        ) {
           const row = source[cursor];
           if (!ids.has(row.id)) visibleWindow.push(row);
           cursor += 1;
@@ -522,17 +626,19 @@ function App() {
         </div>
       </header>
       <Table
-        columns={columns}
+        columns={tableColumns}
         rows={visibleRows}
         height={620}
+        fixedHeader={true}
         loading={loading}
+        columnDraggable
         columnResizable
         sortState={sortState}
         onSortStateChange={setSortState}
         filterValues={filterValues}
         onFilterValuesChange={setFilterValues}
+        // onColumnResize={resizeColumn}
         onColumnOrderChange={reorderColumns}
-        onColumnResize={resizeColumn}
         onRowOrderChange={reorderRows}
         onInsertRows={insertRows}
         onDeleteRows={deleteRows}

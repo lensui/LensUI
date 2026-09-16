@@ -17,6 +17,8 @@ interface PaintOptions<Row extends object> {
   scrollTop: number;
   rowHeight: number;
   headerHeight: number;
+  headerLeafTop?: number;
+  headerLeafHeight?: number;
   bodyTop?: number;
   suppressLastRowBottomBorder?: boolean;
   suppressFrameBottomBorder?: boolean;
@@ -93,6 +95,8 @@ function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth
  */
 export function paintGrid<Row extends object>(options: PaintOptions<Row>): void {
   const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, headerHeight, fixedHeader, verticalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview } = options;
+  const headerLeafTop = options.headerLeafTop ?? 0;
+  const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
   const bodyTop = options.bodyTop ?? headerHeight;
   const getCellSpan = (rowIndex: number, columnIndex: number) => options.cellSpans.get(getCellCoordKey(rowIndex, columnIndex));
@@ -113,10 +117,17 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   ctx.fillRect(0, 0, width, height);
   ctx.font = '13px Inter, ui-sans-serif, system-ui, sans-serif';
   ctx.textBaseline = 'middle';
-  const leftFixedWidth = columns.reduce((value, column, index) => column.fixed === 'left' ? Math.max(value, metrics[index].right) : value, 0);
+  const leftFixedWidth = columns.reduce((value, column, index) => column.fixed === 'left' ? value + metrics[index].width : value, 0);
   const rightFixedWidth = columns.reduce((value, column, index) => column.fixed === 'right' ? value + metrics[index].width : value, 0);
   const rightFixedLeft = width - rightFixedWidth;
 
+  const leftOffsets = new Map<number, number>();
+  let leftOffset = 0;
+  for (let index = 0; index < columns.length; index += 1) {
+    if (columns[index].fixed !== 'left') continue;
+    leftOffsets.set(index, leftOffset);
+    leftOffset += metrics[index].width;
+  }
   // Right-fixed columns are laid out from the right edge inward, so each column
   // needs an offset from the fixed area's trailing edge.
   const rightOffsets = new Map<number, number>();
@@ -126,14 +137,20 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
     rightOffsets.set(index, rightOffset);
     rightOffset += metrics[index].width;
   }
+  const scrollableLefts = new Map<number, number>();
+  let scrollableLeft = leftFixedWidth;
+  for (let index = 0; index < columns.length; index += 1) {
+    scrollableLefts.set(index, scrollableLeft);
+    if (columns[index].fixed === undefined) scrollableLeft += metrics[index].width;
+  }
   const getColumnX = (index: number) => {
     // Normal columns subtract scrollLeft. Fixed columns ignore horizontal
     // scrolling and stay pinned to their fixed region.
     return columns[index].fixed === 'left'
-      ? metrics[index].left
+      ? leftOffsets.get(index) ?? 0
       : columns[index].fixed === 'right'
         ? width - (rightOffsets.get(index) ?? 0) - metrics[index].width
-        : metrics[index].left - scrollLeft;
+        : (scrollableLefts.get(index) ?? leftFixedWidth) - scrollLeft;
   };
 
   const paintBodyColumns = (layer: 'scroll' | 'left' | 'right') => {
@@ -331,7 +348,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
     if (!verticalBorderless) ctx.fillRect(x + metric.width - 1, headerY, 1, headerHeight);
     ctx.fillRect(x, headerY + headerHeight - 1, metric.width, 1);
     const column = columns[columnIndex];
-    if (!column.rowSelection && !column.rowDragHandle && !column.rowNumber && !column.renderHeader && column.title) {
+    if (headerLeafTop === 0 && !column.rowSelection && !column.rowDragHandle && !column.rowNumber && !column.renderHeader && column.title) {
       ctx.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
       const titleWidth = ctx.measureText(column.title).width;
       const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth);
@@ -348,11 +365,11 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const textX = titleAlign === 'right' ? x + contentWidth - padding : titleAlign === 'center' ? x + centeredTextX : x + padding;
       ctx.save();
       ctx.beginPath();
-      ctx.rect(x + 2, headerY + 1, Math.max(0, clipWidth - 4), headerHeight - 2);
+      ctx.rect(x + 2, headerY + headerLeafTop + 1, Math.max(0, clipWidth - 4), headerLeafHeight - 2);
       ctx.clip();
       ctx.fillStyle = colors.muted;
       ctx.textAlign = titleAlign === 'right' ? 'right' : titleAlign === 'center' ? 'center' : 'left';
-      ctx.fillText(title, textX, headerY + headerHeight / 2);
+      ctx.fillText(title, textX, headerY + headerLeafTop + headerLeafHeight / 2);
       ctx.restore();
     }
   }
@@ -361,24 +378,8 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   paintHeaderColumns('left');
   paintHeaderColumns('right');
 
-  if (leftFixedWidth > 0 && scrollLeft > 0) {
-    // Frozen-pane shadows communicate that hidden content exists beneath the
-    // pinned region.
-    const shadowWidth = 10;
-    const shadow = ctx.createLinearGradient(leftFixedWidth, 0, leftFixedWidth + shadowWidth, 0);
-    shadow.addColorStop(0, 'rgba(5, 5, 5, 0.06)');
-    shadow.addColorStop(1, 'rgba(5, 5, 5, 0)');
-    ctx.fillStyle = shadow;
-    ctx.fillRect(leftFixedWidth, 0, shadowWidth, height);
-  }
-  if (rightFixedWidth > 0 && scrollLeft < (metrics[metrics.length - 1]?.right ?? 0) - width) {
-    const shadowWidth = 10;
-    const shadow = ctx.createLinearGradient(rightFixedLeft - shadowWidth, 0, rightFixedLeft, 0);
-    shadow.addColorStop(0, 'rgba(5, 5, 5, 0)');
-    shadow.addColorStop(1, 'rgba(5, 5, 5, 0.06)');
-    ctx.fillStyle = shadow;
-    ctx.fillRect(rightFixedLeft - shadowWidth, 0, shadowWidth, height);
-  }
+  // Frozen-pane shadows are painted by the DOM overlay. Keeping them out of the
+  // canvas prevents the body area from becoming darker than the header/summary.
   if (rightFixedWidth > 0 && !verticalBorderless) {
     ctx.fillStyle = colors.grid;
     ctx.fillRect(rightFixedLeft - 1, 0, 1, height);

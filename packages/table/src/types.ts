@@ -188,6 +188,8 @@ export interface GridColumn<Row> {
   title: string;
   /** Custom React content rendered in the header DOM overlay. */
   renderHeader?: (column: GridColumn<Row>) => ReactNode;
+  /** Child columns used to build grouped / multi-level headers. Only leaf columns render body cells. */
+  children?: GridColumn<Row>[];
   /** Row field used as this column's cell value. Omit for utility columns. */
   dataIndex?: keyof Row;
   /** Preferred column width in pixels. Layout helpers enforce minimums. */
@@ -388,7 +390,11 @@ export interface TableProps<Row extends object> {
   onSelectedColumnKeysChange?: (keys: string[]) => void;
   columnDraggable?: boolean;
   columnResizable?: boolean;
-  onColumnOrderChange?: (sourceIndex: number, targetIndex: number) => void;
+  onColumnOrderChange?: (
+    sourceIndex: number,
+    targetIndex: number,
+    detail?: { type: 'column' | 'group'; sourceKey: string; targetKey: string; parentKey?: string; placement: 'before' | 'after' },
+  ) => void;
   onColumnResize?: (columnKey: string, width: number) => void;
   rowDraggable?: boolean;
   onRowOrderChange?: (sourceIndex: number, targetIndex: number) => void;

@@ -120,7 +120,7 @@ export function Example() {
 | `columnDraggable`            | `boolean`                                                                          | `true`          | 是否允许拖拽调整列顺序。默认开启，普通列默认显示表头拖拽入口，传`false` 可关闭。                                                      |
 | `columnResizable`            | `boolean`                                                                          | `false`         | 是否允许拖拽调整列宽。                                                                                                                  |
 | `onColumnOrderChange`        | `(sourceIndex, targetIndex) => void`                                               | -                 | 列拖拽排序回调。需要在外部更新`columns`。                                                                                             |
-| `onColumnResize`             | `(columnKey, width) => void`                                                       | -                 | 列宽变化回调。需要在外部更新对应列宽。                                                                                                  |
+| `onColumnResize`             | `(columnKey, width) => void`                                                       | -                 | 列宽变化回调。未传时组件会在内部维护列宽；传入后可用于持久化或受控同步。                                                                |
 | `rowDraggable`               | `boolean`                                                                          | `false`         | 是否允许拖拽调整行顺序。开启后组件自动生成左侧拖拽手柄列，不需要在`columns` 中配置。                                                  |
 | `onRowOrderChange`           | `(sourceIndex, targetIndex) => void`                                               | -                 | 行拖拽排序回调。需要在外部更新`rows`。                                                                                                |
 | `onInsertRows`               | `(event) => void`                                                                  | -                 | 右键菜单插入行回调。                                                                                                                    |
@@ -192,6 +192,7 @@ export function Example() {
 | `key`        | `string`                                                                 | 必填                 | 列唯一标识。排序、筛选、选择、编辑回调都使用它。                                            |
 | `title`      | `string`                                                                 | 必填                 | 表头展示文本。                                                                              |
 | `renderHeader` | `(column) => ReactNode`                                                | -                    | 自定义表头 React 内容。多行内容会自动撑开表头高度；`title` 仍用于 tooltip、拖拽预览和回退文本。 |
+| `children`   | `GridColumn<Row>[]`                                                     | -                    | 子列配置。传入后该列作为多级表头分组，只有叶子列渲染数据单元格。                            |
 | `dataIndex`  | `keyof Row`                                                              | -                    | 从行数据中读取和写入的字段。工具列可不传。                                                  |
 | `width`      | `number`                                                                 | `140`              | 列宽，单位 px。最小宽度由内部布局保护。                                                     |
 | `fixed`      | `'left' \| 'right'`                                                       | -                    | 固定列位置。左/右固定列会覆盖滚动列并显示阴影。                                             |
@@ -204,6 +205,31 @@ export function Example() {
 | `renderCell` | `(value, row, rowIndex) => ReactNode`                                    | -                    | 自定义单元格 React 内容。适合标签、徽标、图标组合等内置编辑器无法表达的展示。               |
 | `summary`    | `boolean \| ((rows, column) => ReactNode)`                                | `false`            | 是否在合计行显示该列合计。传`true` 自动累加数字值；传函数可自定义合计内容。               |
 | `cellStyle`  | `(value, row, rowIndex) => { color?: string; backgroundColor?: string }` | -                    | 自定义单元格绘制样式。支持文本颜色和背景色，适合金额、状态等条件高亮。                      |
+
+### 多级表头
+
+列可以通过 `children` 组成多级表头。分组列只负责展示表头，数据、排序、筛选、编辑等能力由叶子列承载：
+
+```tsx
+const columns: GridColumn<Person>[] = [
+  {
+    key: 'basic',
+    title: '基础信息',
+    children: [
+      { key: 'name', title: '姓名', dataIndex: 'name', fixed: 'left' },
+      { key: 'department', title: '部门', dataIndex: 'department' },
+    ],
+  },
+  {
+    key: 'work',
+    title: '工作信息',
+    children: [
+      { key: 'role', title: '岗位', dataIndex: 'role' },
+      { key: 'amount', title: '金额', dataIndex: 'amount', align: 'right' },
+    ],
+  },
+];
+```
 
 ## 列合计
 
@@ -466,7 +492,7 @@ const visibleRows = useMemo(() => {
 
 ## 拖拽和列宽
 
-拖拽排序和调整列宽都采用外部受控数据模式：组件告诉你发生了什么，真正的 `rows` 或 `columns` 更新由你完成。
+拖拽排序采用外部受控数据模式：组件告诉你发生了什么，真正的 `rows` 或 `columns` 更新由你完成。列宽调整支持非受控使用，只传 `columnResizable` 即可拖动；如果需要持久化宽度，可以监听 `onColumnResize` 并同步到你的列配置。
 
 `columnDraggable` 默认开启，普通列会自动显示表头拖拽入口。行选择和行拖拽是表格级配置：开启 `rowSelection` 后自动生成左侧选择列，开启 `rowDraggable` 后自动生成左侧拖拽手柄列，不需要在 `columns` 里配置 `rowSelection` 或 `rowDragHandle`。
 

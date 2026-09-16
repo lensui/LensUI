@@ -26,8 +26,10 @@ type ColumnDrag =
     startX: number;
     startWidth: number;
     startGuideX: number;
-    neighborIndex: number;
-    startNeighborWidth: number;
+    guideTop: number;
+    resizeEdge: 'left' | 'right';
+    resizeIndices: number[];
+    startWidths: number[];
   };
 type ConfirmAction<Row> =
   | { type: 'undo'; cell: GridSelection; row: Row; dataIndex: keyof Row; previousValue: unknown; value: unknown }
@@ -46,6 +48,32 @@ type InternalGridColumn<Row> = GridColumn<Row> & {
   rowDragHandle?: boolean;
   rowNumber?: boolean;
 };
+
+interface HeaderCell<Row> {
+  key: string;
+  column: GridColumn<Row>;
+  level: number;
+  startIndex: number;
+  endIndex: number;
+  leaf: boolean;
+  parentKey?: string;
+  rootIndex: number;
+}
+
+interface HeaderTooltipState {
+  key: string;
+  columnIndex: number;
+  action: 'sort' | 'filter' | 'drag' | 'title';
+  left: number;
+  top: number;
+  label: string;
+  placement: 'left' | 'right';
+}
+
+interface HeaderResizeHit<Row> {
+  cell: HeaderCell<Row>;
+  edge: 'left' | 'right';
+}
 
 interface CellSpanLookup {
   anchors: Map<string, TableResolvedCellSpan>;
@@ -67,6 +95,53 @@ const getRowNumberColumnWidth = (rowCount: number) => {
   const digits = String(Math.max(1, rowCount)).length;
   return digits <= 4 ? 44 : 44 + (digits - 4) * 8;
 };
+
+function getColumnDepth<Row>(column: GridColumn<Row>): number {
+  if (!column.children?.length) return 1;
+  return 1 + Math.max(...column.children.map(getColumnDepth));
+}
+
+function flattenDataColumns<Row>(columns: GridColumn<Row>[], inheritedFixed?: 'left' | 'right', insideGroup = false): GridColumn<Row>[] {
+  return columns.flatMap((column) => {
+    if (!column.children?.length) {
+      return insideGroup ? [{ ...column, fixed: inheritedFixed }] : [column];
+    }
+    return flattenDataColumns(column.children, column.fixed ?? inheritedFixed, true);
+  });
+}
+
+function buildHeaderCells<Row>(sourceColumns: GridColumn<Row>[], utilityColumnCount: number, depth: number): HeaderCell<Row>[] {
+  const cells: HeaderCell<Row>[] = [];
+  let leafIndex = utilityColumnCount;
+  const walk = (column: GridColumn<Row>, level: number, inheritedFixed: 'left' | 'right' | undefined, insideGroup: boolean, rootIndex: number, parentKey?: string) => {
+    const fixedColumn = insideGroup ? { ...column, fixed: inheritedFixed } : column;
+    if (!fixedColumn.children?.length) {
+      const startIndex = leafIndex;
+      leafIndex += 1;
+      cells.push({ key: fixedColumn.key, column: fixedColumn, level: depth - 1, startIndex, endIndex: startIndex, leaf: true, parentKey, rootIndex });
+      return { startIndex, endIndex: startIndex };
+    }
+    const startIndex = leafIndex;
+    fixedColumn.children.forEach((child) => walk(child, level + 1, fixedColumn.fixed, true, rootIndex, fixedColumn.key));
+    const endIndex = leafIndex - 1;
+    cells.push({ key: fixedColumn.key, column: fixedColumn, level, startIndex, endIndex, leaf: false, parentKey, rootIndex });
+    return { startIndex, endIndex };
+  };
+  sourceColumns.forEach((column, index) => walk(column, 0, undefined, false, index));
+  return cells;
+}
+
+function hasNestedFixedColumns<Row>(columns: GridColumn<Row>[], insideGroup = false): boolean {
+  return columns.some((column) => (
+    (insideGroup && column.fixed !== undefined)
+    || (column.children?.length ? hasNestedFixedColumns(column.children, true) : false)
+  ));
+}
+
+function isProductionRuntime(): boolean {
+  const env = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV;
+  return env === 'production';
+}
 
 const createPendingInsertId = () =>
   `table-inserted-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
@@ -199,10 +274,26 @@ export function Table<Row extends object>({
 }: TableProps<Row>) {
   const rowHeight = layout?.rowHeight ?? rowHeightProp ?? 36;
   const baseHeaderHeight = layout?.headerHeight ?? headerHeightProp ?? 40;
+  const headerDepth = useMemo(() => Math.max(1, ...sourceColumns.map(getColumnDepth)), [sourceColumns]);
   const { language, labels } = useMemo(() => resolveGridLocale(locale), [locale]);
   const customHeaderContentRefs = useRef(new Map<string, HTMLElement>());
-  const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState(0);
-  const headerHeight = Math.max(baseHeaderHeight, measuredHeaderHeight);
+  const customHeaderMeasurementsRef = useRef(new Map<string, { level: number; height: number }>());
+  const [measuredHeaderRowHeights, setMeasuredHeaderRowHeights] = useState<number[]>([]);
+  const headerRowHeights = useMemo(() => (
+    Array.from({ length: headerDepth }, (_, level) => Math.max(baseHeaderHeight, measuredHeaderRowHeights[level] ?? 0))
+  ), [baseHeaderHeight, headerDepth, measuredHeaderRowHeights]);
+  const headerRowOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let top = 0;
+    headerRowHeights.forEach((height) => {
+      offsets.push(top);
+      top += height;
+    });
+    return offsets;
+  }, [headerRowHeights]);
+  const headerHeight = headerRowHeights.reduce((total, height) => total + height, 0);
+  const headerLeafTop = headerRowOffsets[headerDepth - 1] ?? 0;
+  const headerLeafHeight = headerRowHeights[headerDepth - 1] ?? baseHeaderHeight;
   const hasVerticalBorders = !(borderless ?? verticalBorderless ?? false);
   const hasStripedRows = Boolean(striped);
   const stripedColor = typeof striped === 'string' ? striped : undefined;
@@ -224,6 +315,13 @@ export function Table<Row extends object>({
   const summaryEmptyValue = typeof summary === 'object' ? summary.emptyValue ?? '' : '';
   const contextMenuEnabled = contextMenuConfig !== false;
   const customContextMenuConfig = typeof contextMenuConfig === 'object' ? contextMenuConfig : undefined;
+  const [resizedColumnWidths, setResizedColumnWidths] = useState<Record<string, number>>({});
+  const leafSourceColumns = useMemo(() => flattenDataColumns(sourceColumns), [sourceColumns]);
+  useEffect(() => {
+    if (!isProductionRuntime() && hasNestedFixedColumns(sourceColumns)) {
+      console.warn('[Table] Multi-level headers only support fixed columns on top-level columns. Nested fixed values are ignored.');
+    }
+  }, [sourceColumns]);
   const columns = useMemo<InternalGridColumn<Row>[]>(() => {
     const utilityColumns: InternalGridColumn<Row>[] = [];
     if (rowDraggable) {
@@ -235,9 +333,24 @@ export function Table<Row extends object>({
     if (rowNumber) {
       utilityColumns.push({ key: '__rvg_row_number__', title: '#', width: getRowNumberColumnWidth(sourceRows.length), align: 'center', fixed: 'left', rowNumber: true });
     }
-    return [...utilityColumns, ...sourceColumns];
-  }, [rowDraggable, rowNumber, rowSelection, sourceColumns, sourceRows.length]);
+    const dataColumns = leafSourceColumns.map((column) => {
+      const resizedWidth = resizedColumnWidths[column.key];
+      return resizedWidth === undefined ? column : { ...column, width: resizedWidth };
+    });
+    return [...utilityColumns, ...dataColumns];
+  }, [leafSourceColumns, resizedColumnWidths, rowDraggable, rowNumber, rowSelection, sourceRows.length]);
   const utilityColumnCount = (rowDraggable ? 1 : 0) + (rowSelection ? 1 : 0) + (rowNumber ? 1 : 0);
+  const headerCells = useMemo(() => buildHeaderCells(sourceColumns, utilityColumnCount, headerDepth), [headerDepth, sourceColumns, utilityColumnCount]);
+  const activeCustomHeaderLevels = useMemo(() => {
+    const levels = new Map<string, number>();
+    columns.forEach((column) => {
+      if (column.renderHeader) levels.set(column.key, headerDepth - 1);
+    });
+    headerCells.forEach((cell) => {
+      if (cell.column.renderHeader) levels.set(`group:${cell.key}:${cell.level}`, cell.level);
+    });
+    return levels;
+  }, [columns, headerCells, headerDepth]);
 
   // Canvas and scroll container references form the physical rendering surface.
   // The canvas paints grid cells, while the scroller supplies native scrolling,
@@ -269,6 +382,14 @@ export function Table<Row extends object>({
   const dragGuideRef = useRef<HTMLDivElement>(null);
   const rowDragGuideRef = useRef<HTMLDivElement>(null);
   const selectionFocusRef = useRef<HTMLDivElement>(null);
+  const verticalScrollbarRef = useRef<HTMLDivElement>(null);
+  const verticalScrollbarThumbRef = useRef<HTMLDivElement>(null);
+  const verticalScrollbarDragRef = useRef<{ pointerId: number; startY: number; startTop: number; trackHeight: number; thumbHeight: number; maxScrollTop: number } | null>(null);
+  const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
+  const horizontalScrollbarThumbRef = useRef<HTMLDivElement>(null);
+  const horizontalScrollbarDragRef = useRef<{ pointerId: number; startX: number; startLeft: number; trackWidth: number; thumbWidth: number; maxScrollLeft: number } | null>(null);
+  const verticalScrollbarVisibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const horizontalScrollbarVisibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Row lookup caches let callbacks report selected rows by stable row keys
   // even when row order changes between controlled updates.
@@ -349,26 +470,60 @@ export function Table<Row extends object>({
     setSelectionRange(null);
   }, [rangeSelection]);
 
+  useEffect(() => {
+    setResizedColumnWidths((current) => {
+      const sourceColumnByKey = new Map(leafSourceColumns.map((column) => [column.key, column] as const));
+      let changed = false;
+      const next: Record<string, number> = {};
+      Object.entries(current).forEach(([key, value]) => {
+        const sourceColumn = sourceColumnByKey.get(key);
+        if (!sourceColumn) {
+          changed = true;
+          return;
+        }
+        if (sourceColumn.width !== undefined && sourceColumn.width !== value) {
+          changed = true;
+          return;
+        }
+        next[key] = value;
+      });
+      return changed ? next : current;
+    });
+  }, [leafSourceColumns]);
+
   useEffect(() => () => {
     if (headerTooltipTimerRef.current !== null) clearTimeout(headerTooltipTimerRef.current);
     if (cellTooltipTimerRef.current !== null) clearTimeout(cellTooltipTimerRef.current);
   }, []);
 
   const measureCustomHeaderHeight = useCallback(() => {
-    let nextHeight = 0;
+    const nextHeights = Array.from({ length: headerDepth }, () => baseHeaderHeight);
     customHeaderContentRefs.current.forEach((node) => {
-      nextHeight = Math.max(nextHeight, Math.ceil(node.scrollHeight) + 16);
+      const headerCell = node.closest<HTMLElement>('.rvg-header-title');
+      const key = headerCell?.dataset.measureKey;
+      const level = key ? activeCustomHeaderLevels.get(key) : undefined;
+      if (!key || level === undefined || level < 0 || level >= nextHeights.length) return;
+      customHeaderMeasurementsRef.current.set(key, { level, height: Math.ceil(node.scrollHeight) + 16 });
     });
-    setMeasuredHeaderHeight((current) => (current === nextHeight ? current : nextHeight));
-  }, []);
+    customHeaderMeasurementsRef.current.forEach((measurement, key) => {
+      if (!activeCustomHeaderLevels.has(key)) return;
+      nextHeights[measurement.level] = Math.max(nextHeights[measurement.level], measurement.height);
+    });
+    setMeasuredHeaderRowHeights((current) => {
+      const changed = nextHeights.length !== current.length || nextHeights.some((height, index) => height !== current[index]);
+      return changed ? nextHeights : current;
+    });
+  }, [activeCustomHeaderLevels, baseHeaderHeight, headerDepth]);
 
   useLayoutEffect(() => {
-    const activeCustomHeaderKeys = new Set(columns.filter((column) => column.renderHeader).map((column) => column.key));
     customHeaderContentRefs.current.forEach((_, key) => {
-      if (!activeCustomHeaderKeys.has(key)) customHeaderContentRefs.current.delete(key);
+      if (!activeCustomHeaderLevels.has(key)) customHeaderContentRefs.current.delete(key);
     });
-    if (customHeaderContentRefs.current.size === 0) {
-      setMeasuredHeaderHeight(0);
+    customHeaderMeasurementsRef.current.forEach((_, key) => {
+      if (!activeCustomHeaderLevels.has(key)) customHeaderMeasurementsRef.current.delete(key);
+    });
+    if (activeCustomHeaderLevels.size === 0) {
+      setMeasuredHeaderRowHeights([]);
       return;
     }
     measureCustomHeaderHeight();
@@ -376,7 +531,7 @@ export function Table<Row extends object>({
     const observer = new ResizeObserver(measureCustomHeaderHeight);
     customHeaderContentRefs.current.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [columns, measureCustomHeaderHeight, viewport.width]);
+  }, [activeCustomHeaderLevels, measureCustomHeaderHeight, viewport.width]);
 
   const [filterEditor, setFilterEditor] = useState<{ columnIndex: number; left: number; top: number; draft: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<
@@ -391,8 +546,9 @@ export function Table<Row extends object>({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
+  const [resizeGuideTop, setResizeGuideTop] = useState(0);
   const [hoveredHeaderAction, setHoveredHeaderAction] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
-  const [visibleHeaderTooltip, setVisibleHeaderTooltip] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
+  const [visibleHeaderTooltip, setVisibleHeaderTooltip] = useState<HeaderTooltipState | null>(null);
   const [hoveredCellTooltip, setHoveredCellTooltip] = useState<{ rowIndex: number; columnIndex: number; left: number; top: number; label: string; color?: string; annotation?: boolean; placement?: 'left' | 'right' } | null>(null);
   const [displaySortState, setDisplaySortState] = useState(sortState);
 
@@ -495,7 +651,17 @@ export function Table<Row extends object>({
   const metrics = useMemo(() => buildColumnMetrics(columns, { columnDraggable, viewportWidth: viewport.width }), [columnDraggable, columns, viewport.width]);
   const contentWidth = metrics.length > 0 ? metrics[metrics.length - 1].right : 0;
   const contentHeight = rows.length * rowHeight;
-  const fixedWidth = useMemo(() => columns.reduce((width, column, index) => column.fixed === 'left' ? Math.max(width, metrics[index].right) : width, 0), [columns, metrics]);
+  const fixedWidth = useMemo(() => columns.reduce((width, column, index) => column.fixed === 'left' ? width + metrics[index].width : width, 0), [columns, metrics]);
+  const leftFixedOffsets = useMemo(() => {
+    const offsets = new Map<number, number>();
+    let offset = 0;
+    for (let index = 0; index < columns.length; index += 1) {
+      if (columns[index].fixed !== 'left') continue;
+      offsets.set(index, offset);
+      offset += metrics[index].width;
+    }
+    return offsets;
+  }, [columns, metrics]);
   const rightFixedWidth = useMemo(() => columns.reduce((width, column, index) => column.fixed === 'right' ? width + metrics[index].width : width, 0), [columns, metrics]);
   const rightFixedOffsets = useMemo(() => {
     const offsets = new Map<number, number>();
@@ -507,6 +673,18 @@ export function Table<Row extends object>({
     }
     return offsets;
   }, [columns, metrics]);
+  const scrollableColumnLefts = useMemo(() => {
+    const lefts: number[] = [];
+    let width = fixedWidth;
+    for (let index = 0; index < columns.length; index += 1) {
+      lefts[index] = width;
+      if (columns[index].fixed === undefined) width += metrics[index].width;
+    }
+    return lefts;
+  }, [columns, fixedWidth, metrics]);
+  const getScrollableColumnLeft = useCallback((columnIndex: number) => (
+    scrollableColumnLefts[columnIndex] ?? fixedWidth
+  ), [fixedWidth, scrollableColumnLefts]);
   const hasRowSelectionColumn = useMemo(() => columns.some((column) => column.rowSelection), [columns]);
   const rowSelectionMode = typeof rowSelection === 'object' ? rowSelection.mode ?? 'multiple' : 'multiple';
   const hasSummaryRow = useMemo(() => rows.length > 0 && summaryEnabled && columns.some((column) => Boolean(column.summary)), [columns, rows.length, summaryEnabled]);
@@ -517,7 +695,7 @@ export function Table<Row extends object>({
   const realContentHeight = bodyTop + bodyContentHeight + bottomSummaryHeight + (contentWidth > viewport.width ? horizontalScrollbarHeight : 0);
   const effectiveHeight = autoHeight ? Math.max(bodyTop + bottomSummaryHeight, Math.min(resolvedHeight, realContentHeight)) : resolvedHeight;
   const renderHeight = Math.max(0, effectiveHeight - bottomSummaryHeight);
-  const bodyViewportHeight = Math.max(0, renderHeight - (fixedHeader ? headerHeight : 0) - topSummaryHeight);
+  const bodyViewportHeight = Math.max(0, renderHeight - (fixedHeader ? headerHeight + topSummaryHeight : 0));
   const [summaryState, setSummaryState] = useState<{
     columns: InternalGridColumn<Row>[] | null;
     rows: Row[] | null;
@@ -742,8 +920,8 @@ export function Table<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, colors: themeColors });
-  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerHeight, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, colors: themeColors });
+  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -787,6 +965,8 @@ export function Table<Row extends object>({
     if (sortDebounceRef.current !== null) clearTimeout(sortDebounceRef.current);
     if (textFrameRef.current !== null) cancelAnimationFrame(textFrameRef.current);
     if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
+    if (verticalScrollbarVisibilityTimerRef.current !== null) clearTimeout(verticalScrollbarVisibilityTimerRef.current);
+    if (horizontalScrollbarVisibilityTimerRef.current !== null) clearTimeout(horizontalScrollbarVisibilityTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -844,9 +1024,216 @@ export function Table<Row extends object>({
     return () => scroller.removeEventListener('scroll', lockScroll);
   }, [insertBusy]);
 
+  const showCustomScrollbar = useCallback((axis: 'vertical' | 'horizontal' | 'both', persist = false) => {
+    const showVertical = axis === 'vertical' || axis === 'both';
+    const showHorizontal = axis === 'horizontal' || axis === 'both';
+    if (showVertical) {
+      verticalScrollbarRef.current?.classList.add('is-active');
+      if (verticalScrollbarVisibilityTimerRef.current !== null) clearTimeout(verticalScrollbarVisibilityTimerRef.current);
+      if (!persist) {
+        verticalScrollbarVisibilityTimerRef.current = setTimeout(() => {
+          verticalScrollbarRef.current?.classList.remove('is-active');
+          verticalScrollbarVisibilityTimerRef.current = null;
+        }, 900);
+      }
+    }
+    if (showHorizontal) {
+      horizontalScrollbarRef.current?.classList.add('is-active');
+      if (horizontalScrollbarVisibilityTimerRef.current !== null) clearTimeout(horizontalScrollbarVisibilityTimerRef.current);
+      if (!persist) {
+        horizontalScrollbarVisibilityTimerRef.current = setTimeout(() => {
+          horizontalScrollbarRef.current?.classList.remove('is-active');
+          horizontalScrollbarVisibilityTimerRef.current = null;
+        }, 900);
+      }
+    }
+  }, []);
+
+  const keepCustomScrollbarVisible = useCallback((axis: 'vertical' | 'horizontal') => {
+    showCustomScrollbar(axis, true);
+  }, [showCustomScrollbar]);
+
+  const releaseCustomScrollbarVisible = useCallback((axis: 'vertical' | 'horizontal') => {
+    if (axis === 'vertical' && verticalScrollbarDragRef.current) return;
+    if (axis === 'horizontal' && horizontalScrollbarDragRef.current) return;
+    showCustomScrollbar(axis);
+  }, [showCustomScrollbar]);
+
+  const updateCustomScrollbars = useCallback(() => {
+    const scroller = scrollerRef.current;
+    const verticalTrack = verticalScrollbarRef.current;
+    const verticalThumb = verticalScrollbarThumbRef.current;
+    const horizontalTrack = horizontalScrollbarRef.current;
+    const horizontalThumb = horizontalScrollbarThumbRef.current;
+    if (!scroller || !verticalTrack || !verticalThumb || !horizontalTrack || !horizontalThumb) return;
+    const maxScrollTop = scroller.scrollHeight - scroller.clientHeight;
+    if (maxScrollTop <= 1 || renderHeight <= 0) {
+      verticalTrack.style.display = 'none';
+    } else {
+      const top = fixedHeader ? bodyTop : 0;
+      const bottom = bottomSummaryHeight;
+      const trackHeight = Math.max(0, effectiveHeight - top - bottom);
+      if (trackHeight <= 0) {
+        verticalTrack.style.display = 'none';
+      } else {
+        const thumbHeight = Math.max(28, Math.round(trackHeight * (scroller.clientHeight / scroller.scrollHeight)));
+        const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
+        const thumbTop = maxScrollTop > 0 ? Math.round((scroller.scrollTop / maxScrollTop) * maxThumbTop) : 0;
+        verticalTrack.style.display = 'block';
+        verticalTrack.style.top = `${top}px`;
+        verticalTrack.style.bottom = `${bottom}px`;
+        verticalThumb.style.height = `${Math.min(trackHeight, thumbHeight)}px`;
+        verticalThumb.style.transform = `translateY(${thumbTop}px)`;
+      }
+    }
+
+    const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+    if (maxScrollLeft <= 1 || viewport.width <= 0) {
+      horizontalTrack.style.display = 'none';
+      return;
+    }
+    const trackLeft = fixedWidth;
+    const trackRight = rightFixedWidth;
+    const trackWidth = Math.max(0, viewport.width - trackLeft - trackRight);
+    if (trackWidth <= 0) {
+      horizontalTrack.style.display = 'none';
+      return;
+    }
+    const thumbWidth = Math.max(36, Math.round(trackWidth * (scroller.clientWidth / scroller.scrollWidth)));
+    const maxThumbLeft = Math.max(0, trackWidth - thumbWidth);
+    const thumbLeft = maxScrollLeft > 0 ? Math.round((scroller.scrollLeft / maxScrollLeft) * maxThumbLeft) : 0;
+    horizontalTrack.style.display = 'block';
+    horizontalTrack.style.left = `${trackLeft}px`;
+    horizontalTrack.style.right = `${trackRight}px`;
+    horizontalTrack.style.bottom = `${bottomSummaryHeight + 2}px`;
+    horizontalThumb.style.width = `${Math.min(trackWidth, thumbWidth)}px`;
+    horizontalThumb.style.transform = `translateX(${thumbLeft}px)`;
+  }, [bodyTop, bottomSummaryHeight, effectiveHeight, fixedHeader, fixedWidth, renderHeight, rightFixedWidth, viewport.width]);
+
+  useLayoutEffect(() => {
+    updateCustomScrollbars();
+  }, [contentHeight, contentWidth, updateCustomScrollbars, viewport.height, viewport.width]);
+
+  const handleVerticalScrollbarPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const scroller = scrollerRef.current;
+    const track = verticalScrollbarRef.current;
+    const thumb = verticalScrollbarThumbRef.current;
+    if (!scroller || !track || !thumb || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const trackRect = track.getBoundingClientRect();
+    const thumbRect = thumb.getBoundingClientRect();
+    const maxScrollTop = scroller.scrollHeight - scroller.clientHeight;
+    const trackHeight = trackRect.height;
+    const thumbHeight = thumbRect.height;
+    showCustomScrollbar('vertical', true);
+    if (event.target === thumb) {
+      verticalScrollbarDragRef.current = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startTop: thumbRect.top - trackRect.top,
+        trackHeight,
+        thumbHeight,
+        maxScrollTop,
+      };
+      return;
+    }
+    const nextThumbTop = Math.max(0, Math.min(trackHeight - thumbHeight, event.clientY - trackRect.top - thumbHeight / 2));
+    const maxThumbTop = Math.max(1, trackHeight - thumbHeight);
+    scroller.scrollTop = (nextThumbTop / maxThumbTop) * maxScrollTop;
+    updateCustomScrollbars();
+    verticalScrollbarDragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startTop: nextThumbTop,
+      trackHeight,
+      thumbHeight,
+      maxScrollTop,
+    };
+  }, [showCustomScrollbar, updateCustomScrollbars]);
+
+  const handleVerticalScrollbarPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = verticalScrollbarDragRef.current;
+    const scroller = scrollerRef.current;
+    if (!drag || !scroller || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const maxThumbTop = Math.max(1, drag.trackHeight - drag.thumbHeight);
+    const nextThumbTop = Math.max(0, Math.min(maxThumbTop, drag.startTop + event.clientY - drag.startY));
+    scroller.scrollTop = (nextThumbTop / maxThumbTop) * drag.maxScrollTop;
+    updateCustomScrollbars();
+  }, [updateCustomScrollbars]);
+
+  const handleVerticalScrollbarPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = verticalScrollbarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    verticalScrollbarDragRef.current = null;
+    showCustomScrollbar('vertical');
+  }, [showCustomScrollbar]);
+
+  const handleHorizontalScrollbarPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const scroller = scrollerRef.current;
+    const track = horizontalScrollbarRef.current;
+    const thumb = horizontalScrollbarThumbRef.current;
+    if (!scroller || !track || !thumb || event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const trackRect = track.getBoundingClientRect();
+    const thumbRect = thumb.getBoundingClientRect();
+    const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+    const trackWidth = trackRect.width;
+    const thumbWidth = thumbRect.width;
+    showCustomScrollbar('horizontal', true);
+    if (event.target === thumb) {
+      horizontalScrollbarDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startLeft: thumbRect.left - trackRect.left,
+        trackWidth,
+        thumbWidth,
+        maxScrollLeft,
+      };
+      return;
+    }
+    const nextThumbLeft = Math.max(0, Math.min(trackWidth - thumbWidth, event.clientX - trackRect.left - thumbWidth / 2));
+    const maxThumbLeft = Math.max(1, trackWidth - thumbWidth);
+    scroller.scrollLeft = (nextThumbLeft / maxThumbLeft) * maxScrollLeft;
+    updateCustomScrollbars();
+    horizontalScrollbarDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startLeft: nextThumbLeft,
+      trackWidth,
+      thumbWidth,
+      maxScrollLeft,
+    };
+  }, [showCustomScrollbar, updateCustomScrollbars]);
+
+  const handleHorizontalScrollbarPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = horizontalScrollbarDragRef.current;
+    const scroller = scrollerRef.current;
+    if (!drag || !scroller || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const maxThumbLeft = Math.max(1, drag.trackWidth - drag.thumbWidth);
+    const nextThumbLeft = Math.max(0, Math.min(maxThumbLeft, drag.startLeft + event.clientX - drag.startX));
+    scroller.scrollLeft = (nextThumbLeft / maxThumbLeft) * drag.maxScrollLeft;
+    updateCustomScrollbars();
+  }, [updateCustomScrollbars]);
+
+  const handleHorizontalScrollbarPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = horizontalScrollbarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    horizontalScrollbarDragRef.current = null;
+    showCustomScrollbar('horizontal');
+  }, [showCustomScrollbar]);
+
   const handleScroll = useCallback(() => {
     const element = scrollerRef.current;
     if (!element) return;
+    const previousScroll = scrollRef.current;
+    const scrollDeltaX = element.scrollLeft - previousScroll.left;
+    const scrollDeltaY = element.scrollTop - previousScroll.top;
     scrollRef.current = { left: element.scrollLeft, top: element.scrollTop };
     const focus = selectionFocusRef.current;
     if (focus && selection && !selectionRange) {
@@ -858,10 +1245,10 @@ export function Table<Row extends object>({
         focus.style.display = 'none';
       } else {
         const rawLeft = column.fixed === 'left'
-          ? metric.left
+          ? leftFixedOffsets.get(selection.columnIndex) ?? 0
           : column.fixed === 'right'
             ? viewport.width - (rightFixedOffsets.get(selection.columnIndex) ?? 0) - metric.width
-            : metric.left - element.scrollLeft;
+            : getScrollableColumnLeft(selection.columnIndex) - element.scrollLeft;
         const rawTop = bodyTop + selection.rowIndex * rowHeight - element.scrollTop;
         const span = getCellSpan(selection.rowIndex, selection.columnIndex);
         const rawRight = rawLeft + getCellDisplayWidth(selection.columnIndex, span?.colSpan ?? 1);
@@ -894,6 +1281,10 @@ export function Table<Row extends object>({
     if (scrollingTextRef.current) scrollingTextRef.current.style.transform = `translateX(${-element.scrollLeft}px)`;
     if (scrollingHeaderIconsRef.current) scrollingHeaderIconsRef.current.style.transform = `translateX(${-element.scrollLeft}px)`;
     if (headerIconsRef.current) headerIconsRef.current.style.transform = `translateY(${fixedHeader ? 0 : -element.scrollTop}px)`;
+    updateCustomScrollbars();
+    if (scrollDeltaX !== 0 || scrollDeltaY !== 0) {
+      showCustomScrollbar(scrollDeltaX !== 0 && scrollDeltaY !== 0 ? 'both' : scrollDeltaX !== 0 ? 'horizontal' : 'vertical');
+    }
     if (hoveredHeaderActionRef.current) {
       hoveredHeaderActionRef.current = null;
       setHoveredHeaderAction(null);
@@ -901,7 +1292,7 @@ export function Table<Row extends object>({
     setHoveredCellTooltip(null);
     scheduleDraw();
     setEditing(null);
-  }, [bodyTop, columns, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, metrics, rightFixedOffsets, rightFixedWidth, rowHeight, rows, scheduleDraw, selection, selectionRange, viewport.width]);
+  }, [bodyTop, columns, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, getScrollableColumnLeft, metrics, rightFixedOffsets, rightFixedWidth, rowHeight, rows, scheduleDraw, selection, selectionRange, showCustomScrollbar, updateCustomScrollbars, viewport.width]);
 
   const locateColumn = useCallback((clientX: number): number => {
     const canvas = canvasRef.current;
@@ -910,7 +1301,11 @@ export function Table<Row extends object>({
     const localX = clientX - rect.left;
     let columnIndex: number;
     if (localX < fixedWidth) {
-      columnIndex = hitTestColumn(metrics, localX);
+      columnIndex = columns.findIndex((column, index) => {
+        if (column.fixed !== 'left') return false;
+        const left = leftFixedOffsets.get(index) ?? 0;
+        return localX >= left && localX < left + metrics[index].width;
+      });
     } else if (rightFixedWidth > 0 && localX >= viewport.width - rightFixedWidth) {
       columnIndex = columns.findIndex((column, index) => {
         if (column.fixed !== 'right') return false;
@@ -918,44 +1313,38 @@ export function Table<Row extends object>({
         return localX >= left && localX < left + metrics[index].width;
       });
     } else {
-      columnIndex = hitTestColumn(metrics, localX + scrollRef.current.left);
+      const scrollX = localX + scrollRef.current.left;
+      columnIndex = columns.findIndex((column, index) => {
+        if (column.fixed !== undefined) return false;
+        const left = getScrollableColumnLeft(index);
+        return scrollX >= left && scrollX < left + metrics[index].width;
+      });
     }
     return columnIndex;
-  }, [columns, fixedWidth, metrics, rightFixedOffsets, rightFixedWidth, viewport.width]);
+  }, [columns, fixedWidth, getScrollableColumnLeft, leftFixedOffsets, metrics, rightFixedOffsets, rightFixedWidth, viewport.width]);
 
   const getDisplayedColumnLeft = useCallback((columnIndex: number) => {
     const metric = metrics[columnIndex];
-    if (columns[columnIndex].fixed === 'left') return metric.left;
+    if (columns[columnIndex].fixed === 'left') return leftFixedOffsets.get(columnIndex) ?? 0;
     if (columns[columnIndex].fixed === 'right') return viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metric.width;
-    return metric.left - scrollRef.current.left;
-  }, [columns, metrics, rightFixedOffsets, viewport.width]);
+    return getScrollableColumnLeft(columnIndex) - scrollRef.current.left;
+  }, [columns, getScrollableColumnLeft, leftFixedOffsets, metrics, rightFixedOffsets, viewport.width]);
 
-  const locateResizeHandle = useCallback((clientX: number): number => {
-    if (!columnResizable || !canvasRef.current) return -1;
-    const localX = clientX - canvasRef.current.getBoundingClientRect().left;
-    let closest = -1;
-    let distance = 6;
-    for (let index = 0; index < columns.length; index += 1) {
-      if (columns[index].rowSelection || columns[index].rowDragHandle || columns[index].rowNumber) continue;
-      const nextDistance = Math.abs(localX - (getDisplayedColumnLeft(index) + metrics[index].width));
-      if (nextDistance < distance) {
-        distance = nextDistance;
-        closest = index;
-      }
+  const getHeaderLevelAtY = useCallback((localY: number, headerY: number) => {
+    const y = localY - headerY;
+    for (let level = 0; level < headerRowHeights.length; level += 1) {
+      const top = headerRowOffsets[level] ?? 0;
+      if (y >= top && y < top + headerRowHeights[level]) return level;
     }
-    return closest;
-  }, [columnResizable, columns, getDisplayedColumnLeft, metrics]);
+    return headerDepth - 1;
+  }, [headerDepth, headerRowHeights, headerRowOffsets]);
 
-  const findResizeNeighbor = useCallback((columnIndex: number): number => {
-    const resizedColumn = columns[columnIndex];
-    for (let index = columnIndex + 1; index < columns.length; index += 1) {
-      const column = columns[index];
-      if (column.rowSelection || column.rowDragHandle || column.rowNumber) continue;
-      if (resizedColumn?.fixed && column.fixed !== resizedColumn.fixed) return -1;
-      return index;
-    }
-    return -1;
-  }, [columns]);
+  const resizeColumn = useCallback((columnKey: string, width: number) => {
+    setResizedColumnWidths((current) => (
+      current[columnKey] === width ? current : { ...current, [columnKey]: width }
+    ));
+    onColumnResize?.(columnKey, width);
+  }, [onColumnResize]);
 
   const locateHeaderAction = useCallback((clientX: number, columnIndex: number): 'sort' | 'filter' | null => {
     if (columnIndex < 0 || !canvasRef.current) return null;
@@ -994,11 +1383,86 @@ export function Table<Row extends object>({
     return localX >= columnRight - 16 && localX < columnRight - 5;
   }, [columnDraggable, columns, getDisplayedColumnLeft, measureHeaderTitleWidth, metrics]);
 
-  const setDragGuide = useCallback((x: number | null) => {
+  const getHeaderCellLeft = useCallback((cell: HeaderCell<Row>) => {
+    const startMetric = metrics[cell.startIndex];
+    const fixedSide = columns[cell.startIndex]?.fixed;
+    if (!startMetric) return 0;
+    return fixedSide === 'left'
+      ? leftFixedOffsets.get(cell.startIndex) ?? 0
+      : fixedSide === 'right'
+        ? viewport.width - (rightFixedOffsets.get(cell.startIndex) ?? 0) - startMetric.width
+        : getScrollableColumnLeft(cell.startIndex) - scrollRef.current.left;
+  }, [columns, getScrollableColumnLeft, leftFixedOffsets, metrics, rightFixedOffsets, viewport.width]);
+
+  const getHeaderCellWidth = useCallback((cell: HeaderCell<Row>) => (
+    cell.leaf
+      ? metrics[cell.startIndex]?.width ?? 0
+      : getCellDisplayWidth(cell.startIndex, cell.endIndex - cell.startIndex + 1)
+  ), [getCellDisplayWidth, metrics]);
+
+  const locateHeaderResizeHit = useCallback((clientX: number, clientY: number): HeaderResizeHit<Row> | null => {
+    if (!columnResizable || !canvasRef.current) return null;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const headerY = fixedHeader ? 0 : -scrollRef.current.top;
+    if (localY < headerY || localY >= headerY + headerHeight) return null;
+    const level = getHeaderLevelAtY(localY, headerY);
+    let closest: HeaderResizeHit<Row> | null = null;
+    let distance = 6;
+    for (const cell of headerCells) {
+      if (cell.level !== level) continue;
+      if (columns[cell.startIndex]?.rowSelection || columns[cell.startIndex]?.rowDragHandle || columns[cell.startIndex]?.rowNumber) continue;
+      const fixedSide = columns[cell.startIndex]?.fixed;
+      const edge = fixedSide === 'right' && cell.leaf ? 'left' : 'right';
+      const edgeX = getHeaderCellLeft(cell) + (edge === 'right' ? getHeaderCellWidth(cell) : 0);
+      const nextDistance = Math.abs(localX - edgeX);
+      if (nextDistance < distance) {
+        distance = nextDistance;
+        closest = { cell, edge };
+      }
+    }
+    return closest;
+  }, [columnResizable, columns, fixedHeader, getHeaderCellLeft, getHeaderCellWidth, getHeaderLevelAtY, headerCells, headerHeight]);
+
+  const locateHeaderResizeCell = useCallback((clientX: number, clientY: number): HeaderCell<Row> | null => (
+    locateHeaderResizeHit(clientX, clientY)?.cell ?? null
+  ), [locateHeaderResizeHit]);
+
+  const locateHeaderCellDragHandle = useCallback((clientX: number, cell: HeaderCell<Row>): boolean => {
+    if (!columnDraggable || !canvasRef.current) return false;
+    if (cell.leaf) return locateHeaderDragHandle(clientX, cell.startIndex);
+    const localX = clientX - canvasRef.current.getBoundingClientRect().left;
+    const right = getHeaderCellLeft(cell) + getHeaderCellWidth(cell);
+    return localX >= right - 16 && localX < right - 5;
+  }, [columnDraggable, getHeaderCellLeft, getHeaderCellWidth, locateHeaderDragHandle]);
+
+  const locateHeaderCell = useCallback((clientX: number, clientY: number): HeaderCell<Row> | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const headerY = fixedHeader ? 0 : -scrollRef.current.top;
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    if (localY < headerY || localY >= headerY + headerHeight) return null;
+    const level = getHeaderLevelAtY(localY, headerY);
+    for (const cell of headerCells) {
+      if (cell.level !== level) continue;
+      const left = getHeaderCellLeft(cell);
+      const width = getHeaderCellWidth(cell);
+      if (localX >= left && localX < left + width) return cell;
+    }
+    return null;
+  }, [fixedHeader, getHeaderCellLeft, getHeaderCellWidth, getHeaderLevelAtY, headerCells, headerHeight]);
+
+  const setDragGuide = useCallback((x: number | null, top = 0) => {
     const guide = dragGuideRef.current;
     if (!guide) return;
     guide.style.display = x === null ? 'none' : 'block';
-    if (x !== null) guide.style.transform = `translateX(${Math.round(x)}px)`;
+    if (x !== null) {
+      guide.style.top = `${top}px`;
+      guide.style.transform = `translateX(${Math.round(x)}px)`;
+    }
   }, []);
 
   const setRowDragGuide = useCallback((y: number | null) => {
@@ -1023,6 +1487,15 @@ export function Table<Row extends object>({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || (!columnDraggable && !rowDraggable)) return;
+    const getColumnDropIndex = (sourceIndex: number, targetIndex: number, edge: unknown) => {
+      if (edge === 'right') return targetIndex;
+      const destinationIndex = targetIndex - (sourceIndex < targetIndex ? 1 : 0);
+      return Math.max(0, Math.min(columns.length - 1, destinationIndex));
+    };
+    const getColumnDropPlacement = (sourceIndex: number, targetIndex: number, edge: unknown): 'before' | 'after' => {
+      if (edge !== 'right') return 'before';
+      return targetIndex < sourceIndex ? 'before' : 'after';
+    };
     const getHeaderColumn = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       const headerY = fixedHeader ? 0 : -scrollRef.current.top;
@@ -1030,26 +1503,39 @@ export function Table<Row extends object>({
       if (localY < headerY || localY >= headerY + headerHeight) return -1;
       return locateColumn(clientX);
     };
+    const getHeaderDragCell = (clientX: number, clientY: number) => {
+      const cell = locateHeaderCell(clientX, clientY);
+      if (!cell) return null;
+      return locateHeaderCellDragHandle(clientX, cell) && !locateHeaderResizeCell(clientX, clientY) ? cell : null;
+    };
     const cleanupDrag = draggable({
       element: canvas,
       canDrag: ({ input }) => {
         // Header drags only start from the drag affordance, not from sort/filter
         // icons or resize handles. Row drags only start from a row drag column.
-        const index = getHeaderColumn(input.clientX, input.clientY);
-        if (columnDraggable && index >= 0) return locateHeaderDragHandle(input.clientX, index) && locateResizeHandle(input.clientX) < 0;
+        const headerDragCell = columnDraggable ? getHeaderDragCell(input.clientX, input.clientY) : null;
+        if (headerDragCell) return true;
         const columnIndex = locateColumn(input.clientX);
         return rowDraggable && columnIndex >= 0 && Boolean(columns[columnIndex].rowDragHandle) && locateRow(input.clientY) >= 0;
       },
       getInitialData: ({ input }) => {
         // The drag payload carries only indices. Drop validation later ensures
         // columns cannot move across fixed left/right/scrolling regions.
-        const headerColumn = getHeaderColumn(input.clientX, input.clientY);
-        if (headerColumn < 0) {
+        const headerDragCell = columnDraggable ? getHeaderDragCell(input.clientX, input.clientY) : null;
+        if (!headerDragCell) {
           return { type: 'table-row', sourceIndex: locateRow(input.clientY) };
         }
-        const sourceIndex = headerColumn;
+        const sourceIndex = headerDragCell.startIndex;
         columnDragPreviewRef.current = { sourceIndex, targetIndex: sourceIndex };
-        return { type: 'table-column', sourceIndex };
+        return {
+          type: 'table-column',
+          sourceIndex,
+          sourceKey: headerDragCell.key,
+          parentKey: headerDragCell.parentKey,
+          headerLevel: headerDragCell.level,
+          headerKind: headerDragCell.leaf ? 'column' : 'group',
+          fixed: columns[headerDragCell.startIndex]?.fixed,
+        };
       },
       onGenerateDragPreview: ({ nativeSetDragImage, source }) => {
         const sourceIndex = Number(source.data.sourceIndex);
@@ -1162,17 +1648,17 @@ export function Table<Row extends object>({
         // Fixed columns are isolated groups. A left-fixed column can only move
         // within the left-fixed region, and the same rule applies to right-fixed
         // and normal scrolling columns.
-        if (!Number.isInteger(targetIndex) || columns[targetIndex]?.fixed !== columns[sourceIndex]?.fixed) {
+        if (!Number.isInteger(targetIndex) || target?.headerKind !== source.data.headerKind || target?.parentKey !== source.data.parentKey || target?.fixed !== source.data.fixed) {
           setDragGuide(null);
           return;
         }
         const edge = target?.columnEdge;
-        let destinationIndex = targetIndex + (edge === 'right' ? 1 : 0);
-        if (sourceIndex < destinationIndex) destinationIndex -= 1;
-        destinationIndex = Math.max(0, Math.min(columns.length - 1, destinationIndex));
+        const destinationIndex = getColumnDropIndex(sourceIndex, targetIndex, edge);
         columnDragPreviewRef.current = { sourceIndex, targetIndex: destinationIndex };
-        const targetLeft = getDisplayedColumnLeft(targetIndex);
-        setDragGuide(edge === 'right' ? targetLeft + metrics[targetIndex].width : targetLeft);
+        const targetLeft = Number(target?.targetLeft);
+        const targetWidth = Number(target?.targetWidth);
+        const guideTop = headerRowOffsets[Number(source.data.headerLevel)] ?? 0;
+        setDragGuide(edge === 'right' ? targetLeft + targetWidth : targetLeft, guideTop);
       },
       onDrop: ({ source, location }) => {
         const target = location.current.dropTargets[0]?.data;
@@ -1196,12 +1682,25 @@ export function Table<Row extends object>({
           window.setTimeout(() => { suppressClickRef.current = false; }, 0);
           return;
         }
-        const targetIndex = columnDragPreviewRef.current?.targetIndex ?? Number(target?.targetIndex);
+        const rawTargetIndex = Number(target?.targetIndex);
+        const targetIndex = columnDragPreviewRef.current?.targetIndex ?? (
+          Number.isInteger(rawTargetIndex) ? getColumnDropIndex(sourceIndex, rawTargetIndex, target?.columnEdge) : rawTargetIndex
+        );
         canvas.style.cursor = 'default';
         setDragGuide(null);
         columnDragPreviewRef.current = null;
-        if (Number.isInteger(targetIndex) && sourceIndex !== targetIndex && columns[targetIndex]?.fixed === columns[sourceIndex]?.fixed) {
-          onColumnOrderChange?.(sourceIndex - utilityColumnCount, targetIndex - utilityColumnCount);
+        if (Number.isInteger(rawTargetIndex) && Number.isInteger(targetIndex) && sourceIndex !== targetIndex && target?.headerKind === source.data.headerKind && target?.parentKey === source.data.parentKey && target?.fixed === source.data.fixed) {
+          onColumnOrderChange?.(
+            sourceIndex - utilityColumnCount,
+            targetIndex - utilityColumnCount,
+            {
+              type: source.data.headerKind === 'group' ? 'group' : 'column',
+              sourceKey: String(source.data.sourceKey),
+              targetKey: String(target.targetKey),
+              parentKey: typeof source.data.parentKey === 'string' ? source.data.parentKey : undefined,
+              placement: getColumnDropPlacement(sourceIndex, rawTargetIndex, target.columnEdge),
+            },
+          );
         }
         window.setTimeout(() => { suppressClickRef.current = false; }, 0);
       },
@@ -1219,8 +1718,12 @@ export function Table<Row extends object>({
           const rowEdge = input.clientY - canvas.getBoundingClientRect().top < rowTop + rowHeight / 2 ? 'top' : 'bottom';
           return attachClosestEdge({ targetIndex, rowEdge }, { element, input, allowedEdges: ['top', 'bottom'] });
         }
-        let targetIndex = getHeaderColumn(input.clientX, input.clientY);
-        if (targetIndex < 0) return { targetIndex: -1 };
+        const targetCell = locateHeaderCell(input.clientX, input.clientY);
+        if (!targetCell) return { targetIndex: -1 };
+        let targetIndex = targetCell.startIndex;
+        const targetFixed = columns[targetCell.startIndex]?.fixed;
+        const headerKind = targetCell.leaf ? 'column' : 'group';
+        if (source.data.headerKind !== headerKind || source.data.parentKey !== targetCell.parentKey || source.data.fixed !== targetFixed) return { targetIndex: -1 };
         if (columns[targetIndex].rowSelection || columns[targetIndex].rowDragHandle || columns[targetIndex].rowNumber) {
           // Utility columns are not reorderable destinations. When dragging over
           // them, find the next real column in the same fixed region.
@@ -1235,16 +1738,26 @@ export function Table<Row extends object>({
           if (targetIndex < 0) return { targetIndex: -1 };
           return { targetIndex, columnEdge: 'left' };
         }
-        const left = getDisplayedColumnLeft(targetIndex);
-        const columnEdge = input.clientX - canvas.getBoundingClientRect().left < left + metrics[targetIndex].width / 2 ? 'left' : 'right';
-        return attachClosestEdge({ targetIndex, columnEdge }, { element, input, allowedEdges: ['left', 'right'] });
+        const left = getHeaderCellLeft(targetCell);
+        const targetWidth = targetCell.leaf ? metrics[targetIndex].width : getHeaderCellWidth(targetCell);
+        const columnEdge = input.clientX - canvas.getBoundingClientRect().left < left + targetWidth / 2 ? 'left' : 'right';
+        return attachClosestEdge({
+          targetIndex,
+          targetKey: targetCell.key,
+          parentKey: targetCell.parentKey,
+          headerKind,
+          fixed: targetFixed,
+          targetLeft: left,
+          targetWidth,
+          columnEdge,
+        }, { element, input, allowedEdges: ['left', 'right'] });
       },
     });
     return () => {
       cleanupDrag();
       cleanupDrop();
     };
-  }, [bodyTop, columnDraggable, columns, fixedHeader, getCellLabel, getDisplayedColumnLeft, getRowKey, headerHeight, locateColumn, locateHeaderDragHandle, locateResizeHandle, locateRow, metrics, onColumnOrderChange, onRowOrderChange, rowDraggable, rowHeight, rows, selectedRowKeySet, setDragGuide, setRowDragGuide, utilityColumnCount]);
+  }, [bodyTop, columnDraggable, columns, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerHeight, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, metrics, onColumnOrderChange, onRowOrderChange, rowDraggable, rowHeight, rows, selectedRowKeySet, setDragGuide, setRowDragGuide, utilityColumnCount]);
 
   // Convert a viewport pointer coordinate into a grid cell identity. This is
   // the shared hit-test path for hover tooltips, selection, range dragging,
@@ -1381,8 +1894,9 @@ export function Table<Row extends object>({
     const horizontalFocusGap = 0;
     const verticalFocusGap = 0;
     if (column.fixed === undefined) {
-      if (metric.left - nextLeft < fixedWidth) nextLeft = Math.max(0, metric.left - fixedWidth - horizontalFocusGap);
-      if (metric.left + cellWidth - nextLeft > viewport.width - rightFixedWidth) nextLeft = metric.left + cellWidth - viewport.width + rightFixedWidth + horizontalFocusGap;
+      const cellLeft = getScrollableColumnLeft(cell.columnIndex);
+      if (cellLeft - nextLeft < fixedWidth) nextLeft = Math.max(0, cellLeft - fixedWidth - horizontalFocusGap);
+      if (cellLeft + cellWidth - nextLeft > viewport.width - rightFixedWidth) nextLeft = cellLeft + cellWidth - viewport.width + rightFixedWidth + horizontalFocusGap;
     }
     const rowTop = (fixedHeader ? 0 : bodyTop) + cell.rowIndex * rowHeight;
     const rowBottom = rowTop + rowHeight * rowSpan;
@@ -1395,7 +1909,7 @@ export function Table<Row extends object>({
     scroller.scrollTop = nextTop;
     scrollRef.current = { left: scroller.scrollLeft, top: scroller.scrollTop };
     scheduleDraw();
-  }, [bodyTop, columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, metrics, rightFixedWidth, rowHeight, scheduleDraw, viewport.width]);
+  }, [bodyTop, columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, metrics, rightFixedWidth, rowHeight, scheduleDraw, viewport.width]);
 
   // Prepare the floating editor for a cell. If the cell is partially offscreen,
   // scroll first and wait two animation frames so editorStyle is calculated from
@@ -1421,8 +1935,9 @@ export function Table<Row extends object>({
     const horizontalFocusGap = 0;
     const verticalFocusGap = 0;
     if (column.fixed === undefined) {
-      if (metric.left - nextLeft < fixedWidth) nextLeft = Math.max(0, metric.left - fixedWidth - horizontalFocusGap);
-      if (metric.left + cellWidth - nextLeft > viewport.width - rightFixedWidth) nextLeft = metric.left + cellWidth - viewport.width + rightFixedWidth + horizontalFocusGap;
+      const cellLeft = getScrollableColumnLeft(cell.columnIndex);
+      if (cellLeft - nextLeft < fixedWidth) nextLeft = Math.max(0, cellLeft - fixedWidth - horizontalFocusGap);
+      if (cellLeft + cellWidth - nextLeft > viewport.width - rightFixedWidth) nextLeft = cellLeft + cellWidth - viewport.width + rightFixedWidth + horizontalFocusGap;
     }
     const rowTop = (fixedHeader ? 0 : bodyTop) + cell.rowIndex * rowHeight;
     const rowBottom = rowTop + rowHeight * rowSpan;
@@ -1446,7 +1961,7 @@ export function Table<Row extends object>({
       return;
     }
     setEditing(cell);
-  }, [columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, metrics, rightFixedWidth, rowHeight, rows, scheduleDraw, viewport.width]);
+  }, [columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, metrics, rightFixedWidth, rowHeight, rows, scheduleDraw, viewport.width]);
 
   const getCellEditKey = (cell: GridSelection) => `${typeof cell.rowKey}:${String(cell.rowKey)}\u0000${cell.columnKey}`;
 
@@ -1592,10 +2107,13 @@ export function Table<Row extends object>({
       const visibleRowHeight = fixedHeader ? renderHeight - bodyTop : renderHeight;
       if (rowTop < scroller.scrollTop) scroller.scrollTop = rowTop;
       if (rowBottom > scroller.scrollTop + visibleRowHeight) scroller.scrollTop = rowBottom - visibleRowHeight;
-      if (columns[columnIndex].fixed === undefined && metric.left < scroller.scrollLeft + fixedWidth) scroller.scrollLeft = Math.max(0, metric.left - fixedWidth);
-      if (columns[columnIndex].fixed === undefined && metric.left + cellWidth > scroller.scrollLeft + viewport.width - rightFixedWidth) scroller.scrollLeft = metric.left + cellWidth - viewport.width + rightFixedWidth;
+      if (columns[columnIndex].fixed === undefined) {
+        const cellLeft = getScrollableColumnLeft(columnIndex);
+        if (cellLeft < scroller.scrollLeft + fixedWidth) scroller.scrollLeft = Math.max(0, cellLeft - fixedWidth);
+        if (cellLeft + cellWidth > scroller.scrollLeft + viewport.width - rightFixedWidth) scroller.scrollLeft = cellLeft + cellWidth - viewport.width + rightFixedWidth;
+      }
     }
-  }, [beginEdit, bodyTop, columns, editing, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, metrics, rightFixedWidth, rowHeight, rows, selection, setSelection, viewport.width]);
+  }, [beginEdit, bodyTop, columns, editing, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, getScrollableColumnLeft, metrics, rightFixedWidth, rowHeight, rows, selection, setSelection, viewport.width]);
 
   const editorStyle = useMemo(() => {
     if (!editing) return undefined;
@@ -1605,63 +2123,82 @@ export function Table<Row extends object>({
     const cellWidth = getCellDisplayWidth(editing.columnIndex, span?.colSpan ?? 1);
     const cellHeight = rowHeight * (span?.rowSpan ?? 1);
     const cellLeft = fixedSide === 'left'
-      ? metric.left
+      ? leftFixedOffsets.get(editing.columnIndex) ?? 0
       : fixedSide === 'right'
         ? viewport.width - (rightFixedOffsets.get(editing.columnIndex) ?? 0) - metric.width
-        : metric.left - scrollRef.current.left;
+        : getScrollableColumnLeft(editing.columnIndex) - scrollRef.current.left;
     return {
       left: (fixedSide ? cellLeft : Math.max(cellLeft, fixedWidth)) + 1,
       top: Math.max(fixedHeader ? bodyTop : 0, bodyTop + editing.rowIndex * rowHeight - scrollRef.current.top) + 1,
       width: cellWidth - 2,
       height: cellHeight - 2,
     };
-  }, [bodyTop, columns, editing, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, metrics, rightFixedOffsets, rowHeight, viewport.width]);
+  }, [bodyTop, columns, editing, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, leftFixedOffsets, metrics, rightFixedOffsets, rowHeight, viewport.width]);
 
   const handleColumnPointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const localY = event.clientY - rect.top;
     const headerY = fixedHeader ? 0 : -scrollRef.current.top;
     if (localY < headerY || localY >= headerY + headerHeight) return;
-    const resizeIndex = locateResizeHandle(event.clientX);
-    if (resizeIndex >= 0) {
+    const resizeHit = locateHeaderResizeHit(event.clientX, event.clientY);
+    if (resizeHit) {
+      const { cell: resizeCell, edge: resizeEdge } = resizeHit;
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
-      const neighborIndex = findResizeNeighbor(resizeIndex);
-      const startGuideX = getDisplayedColumnLeft(resizeIndex) + metrics[resizeIndex].width;
+      const resizeIndex = resizeCell.endIndex;
+      const resizeIndices = resizeCell.leaf
+        ? [resizeIndex]
+        : Array.from({ length: resizeCell.endIndex - resizeCell.startIndex + 1 }, (_, index) => resizeCell.startIndex + index);
+      const startWidths = resizeIndices.map((index) => metrics[index].width);
+      const startGuideX = getHeaderCellLeft(resizeCell) + (resizeEdge === 'right' ? getHeaderCellWidth(resizeCell) : 0);
       columnDragRef.current = {
         type: 'resize',
         columnIndex: resizeIndex,
         startX: event.clientX,
-        startWidth: metrics[resizeIndex].width,
+        startWidth: startWidths.reduce((total, width) => total + width, 0),
         startGuideX,
-        neighborIndex,
-        startNeighborWidth: neighborIndex >= 0 ? metrics[neighborIndex].width : 0,
+        guideTop: headerRowOffsets[resizeCell.level] ?? 0,
+        resizeEdge,
+        resizeIndices,
+        startWidths,
       };
       suppressClickRef.current = true;
+      setResizeGuideTop(headerRowOffsets[resizeCell.level] ?? 0);
       setResizeGuideX(startGuideX);
       return;
     }
-  }, [findResizeNeighbor, fixedHeader, getDisplayedColumnLeft, headerHeight, locateResizeHandle, metrics]);
+  }, [fixedHeader, getHeaderCellLeft, getHeaderCellWidth, headerHeight, headerRowOffsets, locateHeaderResizeHit, metrics]);
 
   const handleColumnPointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = columnDragRef.current;
     if (!drag) return;
     const column = columns[drag.columnIndex];
     const minWidth = getMinimumColumnWidth(column, columnDraggable);
-    let delta = Math.round(event.clientX - drag.startX);
-    if (drag.neighborIndex >= 0) {
-      const neighbor = columns[drag.neighborIndex];
-      const minNeighborWidth = getMinimumColumnWidth(neighbor, columnDraggable);
-      delta = Math.max(minWidth - drag.startWidth, Math.min(drag.startNeighborWidth - minNeighborWidth, delta));
-      onColumnResize?.(column.key, drag.startWidth + delta);
-      onColumnResize?.(neighbor.key, drag.startNeighborWidth - delta);
-      setResizeGuideX(drag.startGuideX + delta);
+    const pointerDelta = Math.round(event.clientX - drag.startX);
+    const delta = drag.resizeEdge === 'left' ? -pointerDelta : pointerDelta;
+    if (drag.resizeIndices.length > 1) {
+      const minWidths = drag.resizeIndices.map((index) => getMinimumColumnWidth(columns[index], columnDraggable));
+      const minTotalWidth = minWidths.reduce((total, width) => total + width, 0);
+      const targetTotalWidth = Math.max(minTotalWidth, drag.startWidth + delta);
+      const ratio = drag.startWidth > 0 ? targetTotalWidth / drag.startWidth : 1;
+      const nextWidths = drag.startWidths.map((width, index) => Math.max(minWidths[index], Math.round(width * ratio)));
+      let remainder = targetTotalWidth - nextWidths.reduce((total, width) => total + width, 0);
+      for (let index = nextWidths.length - 1; index >= 0 && remainder !== 0; index -= 1) {
+        const next = nextWidths[index] + (remainder > 0 ? 1 : -1);
+        if (next < minWidths[index]) continue;
+        nextWidths[index] = next;
+        remainder += remainder > 0 ? -1 : 1;
+      }
+      drag.resizeIndices.forEach((columnIndex, index) => {
+        resizeColumn(columns[columnIndex].key, nextWidths[index]);
+      });
+      setResizeGuideX(drag.startGuideX + (drag.resizeEdge === 'left' ? drag.startWidth - targetTotalWidth : targetTotalWidth - drag.startWidth));
       return;
     }
     const width = Math.max(minWidth, Math.round(drag.startWidth + delta));
-    onColumnResize?.(column.key, width);
-    setResizeGuideX(drag.startGuideX + width - drag.startWidth);
-  }, [columnDraggable, columns, onColumnResize]);
+    resizeColumn(column.key, width);
+    setResizeGuideX(drag.startGuideX + (drag.resizeEdge === 'left' ? drag.startWidth - width : width - drag.startWidth));
+  }, [columnDraggable, columns, resizeColumn]);
 
   const handleColumnPointerUp = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = columnDragRef.current;
@@ -1669,6 +2206,7 @@ export function Table<Row extends object>({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     columnDragRef.current = null;
     setResizeGuideX(null);
+    setResizeGuideTop(0);
   }, []);
 
   const queueSortStateChange = useCallback((next: typeof displaySortState) => {
@@ -1683,7 +2221,7 @@ export function Table<Row extends object>({
   const renderHeaderIcons = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
-    const top = (headerHeight - 14) / 2;
+    const top = headerLeafTop + (headerLeafHeight - 14) / 2;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
     let right = left + metrics[columnIndex].width - (visibleActions.drag ? 18 : 4);
     const icons = [];
@@ -1710,52 +2248,101 @@ export function Table<Row extends object>({
     return icons;
   };
 
-  const headerTooltip = (() => {
-    if (!visibleHeaderTooltip) return null;
-    const { columnIndex, action } = visibleHeaderTooltip;
-    const column = columns[columnIndex];
+  const createHeaderTooltip = useCallback((action: HeaderTooltipState['action'], columnIndex: number, cell?: HeaderCell<Row>): HeaderTooltipState | null => {
+    const column = cell?.column ?? columns[columnIndex];
     if (!column) return null;
-    const columnRight = getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width;
-    const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-    let anchorX = columnRight - (visibleActions.drag ? 18 : 4);
-    let anchorLeft = anchorX;
-    let label: string;
+    const cellLeft = cell ? getHeaderCellLeft(cell) : getDisplayedColumnLeft(columnIndex);
+    const cellWidth = cell ? getHeaderCellWidth(cell) : metrics[columnIndex]?.width ?? 0;
+    const level = cell?.level ?? headerDepth - 1;
+    const rowTop = (fixedHeader ? 0 : -scrollPosition.top) + (headerRowOffsets[level] ?? 0);
+    const rowHeight = headerRowHeights[level] ?? baseHeaderHeight;
+    let anchorX = cellLeft + cellWidth / 2;
+    let anchorLeft = cellLeft;
+    let label = column.title;
     if (action === 'title') {
-      const titleWidth = measureHeaderTitleWidth(columnIndex);
-      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18;
-      const contentWidth = Math.max(0, metrics[columnIndex].width - actionWidth);
-      const textWidth = Math.min(titleWidth, Math.max(0, contentWidth - 20));
-      const columnLeft = getDisplayedColumnLeft(columnIndex);
-      anchorX = column.align === 'right'
-        ? columnLeft + contentWidth - 10
-        : column.align === 'center'
-          ? columnLeft + metrics[columnIndex].width / 2 + textWidth / 2
-          : columnLeft + 10 + textWidth;
-      anchorLeft = column.align === 'right'
-        ? anchorX - textWidth
-        : column.align === 'center'
-          ? columnLeft + metrics[columnIndex].width / 2 - textWidth / 2
-          : columnLeft + 10;
-      label = column.title;
+      const canvas = canvasRef.current;
+      const context = canvas?.getContext('2d');
+      if (context) context.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
+      const titleWidth = context?.measureText(column.title).width ?? column.title.length * 13;
+      const visibleActions = cell?.leaf || !cell
+        ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth)
+        : null;
+      const actionWidth = visibleActions
+        ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18
+        : columnDraggable ? 18 : 0;
+      const contentWidth = Math.max(0, cellWidth - actionWidth);
+      const maxTextWidth = Math.max(0, contentWidth - 20);
+      const textWidth = Math.min(titleWidth, maxTextWidth);
+      if (column.align === 'right') {
+        anchorX = cellLeft + contentWidth - 10;
+        anchorLeft = anchorX - textWidth;
+      } else if (column.align === 'center') {
+        anchorX = cellLeft + contentWidth / 2 + textWidth / 2;
+        anchorLeft = cellLeft + contentWidth / 2 - textWidth / 2;
+      } else {
+        anchorLeft = cellLeft + 10;
+        anchorX = anchorLeft + textWidth;
+      }
     } else if (action === 'drag') {
-      anchorX = columnRight;
+      anchorX = cellLeft + cellWidth;
       anchorLeft = anchorX;
       label = labels.dragColumn;
     } else if (action === 'sort') {
       const direction = displaySortState?.columnKey === column.key ? displaySortState.direction : null;
       label = direction === 'asc' ? labels.sortAsc : direction === 'desc' ? labels.sortDesc : labels.sortBoth;
-    } else {
-      if (visibleActions.sort) anchorX -= 18;
+      anchorX = cellLeft + cellWidth - 22;
+      anchorLeft = anchorX;
+    } else if (action === 'filter') {
       const value = filterValues[column.key];
       label = value ? labels.filterWithValue(value) : labels.filter;
+      anchorX = cellLeft + cellWidth - 40;
+      anchorLeft = anchorX;
     }
     const placement: 'left' | 'right' = anchorX + 328 > viewport.width ? 'left' : 'right';
     return {
+      key: `${action}:${cell ? `cell:${cell.key}:${cell.level}` : `column:${column.key}`}:${Math.round(anchorX)}:${Math.round(rowTop)}`,
+      columnIndex,
+      action,
       left: placement === 'right' ? anchorX + 8 : Math.max(8, anchorLeft - 8),
-      top: (fixedHeader ? 0 : -scrollPosition.top) + headerHeight / 2,
+      top: rowTop + rowHeight / 2,
       label,
       placement,
     };
+  }, [baseHeaderHeight, columnDraggable, columns, displaySortState, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerDepth, headerRowHeights, headerRowOffsets, labels, metrics, scrollPosition.top, viewport.width]);
+
+  const isPointerOnHeaderTitle = useCallback((clientX: number, clientY: number, cell: HeaderCell<Row>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    const rect = canvas.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const column = cell.column;
+    const cellLeft = getHeaderCellLeft(cell);
+    const cellWidth = getHeaderCellWidth(cell);
+    const rowTop = (fixedHeader ? 0 : -scrollRef.current.top) + (headerRowOffsets[cell.level] ?? 0);
+    const context = canvas.getContext('2d');
+    if (context) context.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
+    const titleWidth = context?.measureText(column.title).width ?? column.title.length * 13;
+    const visibleActions = cell.leaf
+      ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth)
+      : null;
+    const actionWidth = visibleActions
+      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18
+      : columnDraggable ? 18 : 0;
+    const contentWidth = Math.max(0, cellWidth - actionWidth);
+    const textWidth = Math.min(titleWidth, Math.max(0, contentWidth - 20));
+    const textLeft = column.align === 'right'
+      ? cellLeft + contentWidth - 10 - textWidth
+      : column.align === 'center'
+        ? cellLeft + contentWidth / 2 - textWidth / 2
+        : cellLeft + 10;
+    const textTop = rowTop + 8;
+    return localX >= textLeft - 4 && localX <= textLeft + textWidth + 4 && localY >= textTop - 2 && localY <= textTop + 18;
+  }, [columnDraggable, fixedHeader, getHeaderCellLeft, getHeaderCellWidth, headerRowOffsets]);
+
+  const headerTooltip = (() => {
+    if (!visibleHeaderTooltip) return null;
+    return visibleHeaderTooltip;
   })();
 
   const getRangeBounds = () => selectionRange ? {
@@ -1822,7 +2409,7 @@ export function Table<Row extends object>({
   };
 
   const showHeaderTooltipAfterDelay = (next: typeof visibleHeaderTooltip) => {
-    const nextKey = next ? `${next.columnIndex}:${next.action}` : '';
+    const nextKey = next ? next.key : '';
     if (nextKey && pendingHeaderTooltipKeyRef.current === nextKey) return;
     pendingHeaderTooltipKeyRef.current = nextKey;
     if (headerTooltipTimerRef.current !== null) clearTimeout(headerTooltipTimerRef.current);
@@ -2080,12 +2667,14 @@ export function Table<Row extends object>({
   const renderHeaderTitle = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
     const currentScrollTop = scrollRef.current.top;
+    const headerTop = fixedHeader ? 0 : -currentScrollTop;
+    const leafTop = headerTop + headerLeafTop;
     if (column.rowNumber) {
       return (
         <div
           key={column.key}
           className="rvg-header-title"
-          style={{ left, top: fixedHeader ? 0 : -currentScrollTop, width: metrics[columnIndex].width, height: headerHeight, justifyContent: 'center', padding: 0, textAlign: 'center' }}
+          style={{ left, top: headerTop, width: metrics[columnIndex].width, height: headerHeight, justifyContent: 'center', padding: 0, textAlign: 'center' }}
         >
           <span>{column.title}</span>
         </div>
@@ -2099,7 +2688,7 @@ export function Table<Row extends object>({
         <div
           key={column.key}
           className="rvg-header-selection-icon"
-          style={{ left, top: fixedHeader ? 0 : -currentScrollTop, width: metrics[columnIndex].width, height: headerHeight }}
+          style={{ left, top: headerTop, width: metrics[columnIndex].width, height: headerHeight }}
         >
           <SelectionIcon checked={allSelected} indeterminate={indeterminate} />
         </div>
@@ -2112,19 +2701,23 @@ export function Table<Row extends object>({
         <div
           key={column.key}
           className="rvg-header-title is-custom"
+          data-level={headerDepth - 1}
+          data-measure-key={column.key}
           style={{
             left,
-            top: fixedHeader ? 0 : -currentScrollTop,
+            top: leafTop,
             width: Math.max(0, metrics[columnIndex].width - actionWidth),
-            height: headerHeight,
+            height: headerLeafHeight,
             justifyContent: column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start',
             textAlign: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
           }}
         >
           <span
             ref={(node) => {
-              if (node) customHeaderContentRefs.current.set(column.key, node);
-              else customHeaderContentRefs.current.delete(column.key);
+              if (node) {
+                customHeaderContentRefs.current.set(column.key, node);
+                requestAnimationFrame(measureCustomHeaderHeight);
+              } else customHeaderContentRefs.current.delete(column.key);
             }}
           >
             {column.renderHeader(column)}
@@ -2133,6 +2726,67 @@ export function Table<Row extends object>({
       );
     }
     return null;
+  };
+
+  const renderGroupedHeaderCell = (cell: HeaderCell<Row>) => {
+    const startMetric = metrics[cell.startIndex];
+    const endMetric = metrics[cell.endIndex];
+    if (!startMetric || !endMetric) return null;
+    const column = cell.column;
+    const fixedSide = columns[cell.startIndex]?.fixed;
+    const currentScrollTop = scrollRef.current.top;
+    const rowHeightForLevel = headerRowHeights[cell.level] ?? baseHeaderHeight;
+    const headerTop = (fixedHeader ? 0 : -currentScrollTop) + (headerRowOffsets[cell.level] ?? 0);
+    const left = fixedSide === 'left'
+      ? leftFixedOffsets.get(cell.startIndex) ?? 0
+      : fixedSide === 'right'
+        ? viewport.width - (rightFixedOffsets.get(cell.startIndex) ?? 0) - startMetric.width
+        : getScrollableColumnLeft(cell.startIndex);
+    const width = cell.leaf
+      ? startMetric.width
+      : getCellDisplayWidth(cell.startIndex, cell.endIndex - cell.startIndex + 1);
+    const visibleActions = cell.leaf
+      ? getVisibleHeaderActions(column, startMetric.width, columnDraggable, measureHeaderTitleWidth(cell.startIndex))
+      : null;
+    const actionWidth = visibleActions
+      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18
+      : columnDraggable && !cell.leaf ? 18 : 0;
+    return (
+      <div
+        key={`group:${cell.key}:${cell.level}`}
+        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}`}
+        data-level={cell.level}
+        data-measure-key={`group:${cell.key}:${cell.level}`}
+        style={{
+          left,
+          top: headerTop,
+          width,
+          height: rowHeightForLevel,
+          paddingRight: cell.leaf ? actionWidth + 10 : 10,
+          justifyContent: column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start',
+          textAlign: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
+        }}
+      >
+        <span
+          ref={(node) => {
+            if (!column.renderHeader) return;
+            const key = `group:${cell.key}:${cell.level}`;
+            if (node) {
+              customHeaderContentRefs.current.set(key, node);
+              requestAnimationFrame(measureCustomHeaderHeight);
+            } else customHeaderContentRefs.current.delete(key);
+          }}
+        >
+          {column.renderHeader ? column.renderHeader(column) : column.title}
+        </span>
+        {!cell.leaf && columnDraggable && (
+          <HeaderDragIcon
+            className={`rvg-header-icon rvg-header-drag-icon${hoveredHeaderAction?.columnIndex === cell.startIndex && hoveredHeaderAction.action === 'drag' ? ' is-hovered' : ''}`}
+            style={{ left: width - 16, top: (rowHeightForLevel - 14) / 2 }}
+          />
+        )}
+      </div>
+    );
   };
 
   const rangeHandlePosition = (() => {
@@ -2377,26 +3031,37 @@ export function Table<Row extends object>({
             const headerY = fixedHeader ? 0 : -scrollRef.current.top;
             const columnIndex = locateColumn(event.clientX);
             const inHeader = localY >= headerY && localY < headerY + headerHeight;
-            const hoveredAction = inHeader ? locateHeaderAction(event.clientX, columnIndex) : null;
-            const hoveredDragHandle = inHeader && locateHeaderDragHandle(event.clientX, columnIndex);
+            const inLeafHeader = inHeader && localY >= headerY + headerLeafTop;
+            const hoveredHeaderCell = inHeader ? locateHeaderCell(event.clientX, event.clientY) : null;
+            const hoveredAction = inLeafHeader ? locateHeaderAction(event.clientX, columnIndex) : null;
+            const hoveredDragHandle = Boolean(hoveredHeaderCell && locateHeaderCellDragHandle(event.clientX, hoveredHeaderCell));
+            const hoveredDragColumnIndex = hoveredHeaderCell?.startIndex ?? columnIndex;
             const hoveredTitle = inHeader
               && !hoveredAction
               && !hoveredDragHandle
-              && columnIndex >= 0
-              && Boolean(columns[columnIndex]?.title)
-              && (tooltipConfig.header || isHeaderTitleTruncated(columnIndex));
+              && hoveredHeaderCell
+              && Boolean(hoveredHeaderCell.column.title)
+              && isPointerOnHeaderTitle(event.clientX, event.clientY, hoveredHeaderCell)
+              && (tooltipConfig.header || (hoveredHeaderCell.leaf && isHeaderTitleTruncated(hoveredHeaderCell.startIndex)));
             const nextHover = hoveredAction
               ? { columnIndex, action: hoveredAction }
               : hoveredDragHandle
-                ? { columnIndex, action: 'drag' as const }
+                ? { columnIndex: hoveredDragColumnIndex, action: 'drag' as const }
                 : hoveredTitle
-                  ? { columnIndex, action: 'title' as const }
+                  ? { columnIndex: hoveredHeaderCell.startIndex, action: 'title' as const }
                 : null;
+            const nextTooltip = hoveredAction && hoveredHeaderCell
+              ? createHeaderTooltip(hoveredAction, columnIndex, hoveredHeaderCell)
+              : hoveredDragHandle && hoveredHeaderCell
+                ? createHeaderTooltip('drag', hoveredDragColumnIndex, hoveredHeaderCell)
+                : hoveredTitle && hoveredHeaderCell
+                  ? createHeaderTooltip('title', hoveredHeaderCell.startIndex, hoveredHeaderCell)
+                  : null;
             const previousHover = hoveredHeaderActionRef.current;
             if (previousHover?.columnIndex !== nextHover?.columnIndex || previousHover?.action !== nextHover?.action) {
               hoveredHeaderActionRef.current = nextHover;
               setHoveredHeaderAction(nextHover);
-              showHeaderTooltipAfterDelay(nextHover);
+              showHeaderTooltipAfterDelay(nextTooltip);
               scheduleDraw();
             }
             if (inHeader) {
@@ -2474,7 +3139,7 @@ export function Table<Row extends object>({
                 }
               }
             }
-            const cursor = inHeader && locateResizeHandle(event.clientX) >= 0
+            const cursor = inHeader && locateHeaderResizeCell(event.clientX, event.clientY)
               ? 'col-resize'
               : hoveredAction
                 ? 'pointer'
@@ -2515,6 +3180,7 @@ export function Table<Row extends object>({
             const headerY = fixedHeader ? 0 : -scrollRef.current.top;
             if (localY >= headerY && localY < headerY + headerHeight) {
               clickedCellRef.current = null;
+              if (localY < headerY + headerLeafTop) return;
               const columnIndex = locateColumn(event.clientX);
               const action = locateHeaderAction(event.clientX, columnIndex);
               if (action === 'sort') {
@@ -2578,15 +3244,22 @@ export function Table<Row extends object>({
               className="rvg-text-scroll-content"
               style={{ left: -fixedWidth, width: contentWidth, transform: `translateX(${-currentScroll.left}px)` }}
             >
-              {columns.map((column, columnIndex) => column.fixed ? null : (
-                columnIndex >= domRange.columnStart && columnIndex < domRange.columnEnd
-                  ? <span key={column.key}>{renderHeaderTitle(columnIndex, metrics[columnIndex].left)}</span>
-                  : null
+              {columns.map((column, columnIndex) => (
+                column.fixed || columnIndex < utilityColumnCount || headerDepth > 1 ? null : (
+                  columnIndex >= domRange.columnStart && columnIndex < domRange.columnEnd
+                    ? <span key={column.key}>{renderHeaderTitle(columnIndex, getScrollableColumnLeft(columnIndex))}</span>
+                    : null
+                )
               ))}
+              {headerCells.map((cell) => {
+                if (columns[cell.startIndex]?.fixed) return null;
+                if (cell.endIndex < domRange.columnStart || cell.startIndex >= domRange.columnEnd) return null;
+                return renderGroupedHeaderCell(cell);
+              })}
               <div className="rvg-body-text-clip" style={{ top: fixedHeader ? bodyTop : 0, bottom: 0 }}>
                 {Array.from({ length: domRange.rowEnd - domRange.rowStart }, (_, offset) => domRange.rowStart + offset).flatMap((rowIndex) => columns.map((column, columnIndex) => {
                   if (column.fixed || columnIndex < domRange.columnStart || columnIndex >= domRange.columnEnd) return null;
-                  return renderCellText(rowIndex, columnIndex, metrics[columnIndex].left);
+                  return renderCellText(rowIndex, columnIndex, getScrollableColumnLeft(columnIndex));
                 }))}
               </div>
             </div>
@@ -2595,31 +3268,39 @@ export function Table<Row extends object>({
             {Array.from({ length: domRange.rowEnd - domRange.rowStart }, (_, offset) => domRange.rowStart + offset).flatMap((rowIndex) => columns.map((column, columnIndex) => {
               if (!column.fixed) return null;
               const left = column.fixed === 'left'
-                ? metrics[columnIndex].left
+                ? leftFixedOffsets.get(columnIndex) ?? 0
                 : viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metrics[columnIndex].width;
               return renderCellText(rowIndex, columnIndex, left);
             }))}
           </div>
-          {columns.map((column, columnIndex) => column.fixed === 'left' ? renderHeaderTitle(columnIndex, metrics[columnIndex].left) : null)}
-          {columns.map((column, columnIndex) => column.fixed === 'right' ? renderHeaderTitle(columnIndex, viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metrics[columnIndex].width) : null)}
+          {columns.map((column, columnIndex) => (
+            columnIndex < utilityColumnCount || (headerDepth === 1 && (column.fixed === 'left' || column.fixed === 'right'))
+              ? renderHeaderTitle(columnIndex, column.fixed === 'right' ? viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metrics[columnIndex].width : column.fixed === 'left' ? leftFixedOffsets.get(columnIndex) ?? 0 : getScrollableColumnLeft(columnIndex))
+              : null
+          ))}
+          {headerCells.map((cell) => columns[cell.startIndex]?.fixed ? renderGroupedHeaderCell(cell) : null)}
+          {fixedWidth > 0 && currentScroll.left > 0 && <div className="rvg-text-fixed-shadow is-left" style={{ left: fixedWidth }} />}
+          {rightFixedWidth > 0 && currentScroll.left < contentWidth - viewport.width && <div className="rvg-text-fixed-shadow is-right" style={{ right: rightFixedWidth }} />}
+          {hasVerticalBorders && fixedWidth > 0 && <div className="rvg-text-fixed-border is-left" style={{ left: fixedWidth - 1 }} />}
+          {hasVerticalBorders && rightFixedWidth > 0 && <div className="rvg-text-fixed-border is-right" style={{ right: rightFixedWidth }} />}
         </div>
         <div className="rvg-spacer" style={{ width: contentWidth, height: contentHeight + bodyTop, marginTop: -renderHeight }} />
       </div>
       {hasSummaryRow && (
         <div
           className={`rvg-summary-row is-${summaryPosition}${hasVerticalBorders ? '' : ' is-vertical-borderless'}`}
-          style={{ height: rowHeight, top: summaryPosition === 'top' ? headerHeight : undefined }}
+          style={{ height: rowHeight, top: summaryPosition === 'top' ? (fixedHeader ? headerHeight : headerHeight - currentScroll.top) : undefined }}
         >
           <div className="rvg-summary-scroll-clip" style={{ left: fixedWidth, right: rightFixedWidth }}>
             <div
               className="rvg-summary-scroll-content"
               style={{ left: -fixedWidth, width: contentWidth, transform: `translateX(${-currentScroll.left}px)` }}
             >
-              {columns.map((column, columnIndex) => column.fixed ? null : renderSummaryCell(columnIndex, metrics[columnIndex].left))}
+              {columns.map((column, columnIndex) => column.fixed ? null : renderSummaryCell(columnIndex, getScrollableColumnLeft(columnIndex)))}
             </div>
           </div>
           <div className="rvg-summary-fixed-layer">
-            {columns.map((column, columnIndex) => column.fixed === 'left' ? renderSummaryCell(columnIndex, metrics[columnIndex].left) : null)}
+            {columns.map((column, columnIndex) => column.fixed === 'left' ? renderSummaryCell(columnIndex, leftFixedOffsets.get(columnIndex) ?? 0) : null)}
             {columns.map((column, columnIndex) => column.fixed === 'right' ? renderSummaryCell(columnIndex, viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metrics[columnIndex].width) : null)}
           </div>
           {fixedWidth > 0 && currentScroll.left > 0 && <div className="rvg-summary-fixed-shadow is-left" style={{ left: fixedWidth }} />}
@@ -2635,11 +3316,11 @@ export function Table<Row extends object>({
             className="rvg-header-icon-layer rvg-header-icon-layer-scroll"
             style={{ left: -fixedWidth, width: contentWidth, transform: `translateX(${-scrollRef.current.left}px)` }}
           >
-            {columns.map((column, index) => column.fixed ? null : <span key={column.key}>{renderHeaderIcons(index, metrics[index].left)}</span>)}
+            {columns.map((column, index) => column.fixed ? null : <span key={column.key}>{renderHeaderIcons(index, getScrollableColumnLeft(index))}</span>)}
           </div>
         </div>
         <div className="rvg-header-icon-layer">
-          {columns.map((column, index) => column.fixed === 'left' ? <span key={column.key}>{renderHeaderIcons(index, metrics[index].left)}</span> : null)}
+          {columns.map((column, index) => column.fixed === 'left' ? <span key={column.key}>{renderHeaderIcons(index, leftFixedOffsets.get(index) ?? 0)}</span> : null)}
           {columns.map((column, index) => column.fixed === 'right' ? <span key={column.key}>{renderHeaderIcons(index, viewport.width - (rightFixedOffsets.get(index) ?? 0) - metrics[index].width)}</span> : null)}
         </div>
       </div>
@@ -2928,11 +3609,35 @@ export function Table<Row extends object>({
         </div>
       )}
       {toast && <div className={`rvg-toast is-${toast.type}`} role="status">{toast.message}</div>}
+      <div
+        ref={verticalScrollbarRef}
+        className="rvg-vertical-scrollbar"
+        onPointerEnter={() => keepCustomScrollbarVisible('vertical')}
+        onPointerLeave={() => releaseCustomScrollbarVisible('vertical')}
+        onPointerDown={handleVerticalScrollbarPointerDown}
+        onPointerMove={handleVerticalScrollbarPointerMove}
+        onPointerUp={handleVerticalScrollbarPointerUp}
+        onPointerCancel={handleVerticalScrollbarPointerUp}
+      >
+        <div ref={verticalScrollbarThumbRef} className="rvg-vertical-scrollbar-thumb" />
+      </div>
+      <div
+        ref={horizontalScrollbarRef}
+        className="rvg-horizontal-scrollbar"
+        onPointerEnter={() => keepCustomScrollbarVisible('horizontal')}
+        onPointerLeave={() => releaseCustomScrollbarVisible('horizontal')}
+        onPointerDown={handleHorizontalScrollbarPointerDown}
+        onPointerMove={handleHorizontalScrollbarPointerMove}
+        onPointerUp={handleHorizontalScrollbarPointerUp}
+        onPointerCancel={handleHorizontalScrollbarPointerUp}
+      >
+        <div ref={horizontalScrollbarThumbRef} className="rvg-horizontal-scrollbar-thumb" />
+      </div>
       <div ref={dragGuideRef} className="rvg-column-guide" />
       {resizeGuideX !== null && (
         <div
           className="rvg-column-guide is-resizing"
-          style={{ display: 'block', transform: `translateX(${Math.round(resizeGuideX)}px)` }}
+          style={{ display: 'block', top: resizeGuideTop, transform: `translateX(${Math.round(resizeGuideX)}px)` }}
         />
       )}
       <div ref={rowDragGuideRef} className="rvg-row-guide" />

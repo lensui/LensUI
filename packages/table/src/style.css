@@ -35,14 +35,30 @@
 .rvg-root.is-deleting,
 .rvg-root.is-deleting * { cursor: progress !important; }
 .rvg-root.is-inserting .rvg-scroller { overflow: hidden; touch-action: none; }
-.rvg-scroller { position: absolute; inset: 0; overflow: auto; outline: none; overscroll-behavior: none; overscroll-behavior-x: none; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; scrollbar-gutter: stable; scrollbar-color: #92979c transparent; }
+.rvg-scroller { position: absolute; inset: 0; overflow: auto; outline: none; overscroll-behavior: none; overscroll-behavior-x: none; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .rvg-scroller.is-context-menu-open { overflow: hidden; touch-action: none; }
+.rvg-scroller::-webkit-scrollbar { width: 0; height: 0; }
 .rvg-scroller::-webkit-scrollbar-track,
 .rvg-scroller::-webkit-scrollbar-corner { background: transparent; }
 .rvg-scroller::-webkit-scrollbar-thumb { background: #92979c; border-radius: 4px; }
 .rvg-spacer { pointer-events: none; }
 .rvg-canvas { position: sticky; z-index: 1; left: 0; top: 0; display: block; cursor: default; }
 .rvg-text-layer { position: sticky; z-index: 2; top: 0; left: 0; overflow: hidden; pointer-events: none; }
+.rvg-text-layer::before { position: absolute; z-index: 5; top: 0; right: 0; left: 0; height: 1px; background: var(--rvg-color-grid); content: ''; pointer-events: none; }
+.rvg-vertical-scrollbar,
+.rvg-horizontal-scrollbar { position: absolute; z-index: 7; display: none; opacity: 0; pointer-events: none; touch-action: none; transition: opacity 160ms ease; }
+.rvg-vertical-scrollbar.is-active,
+.rvg-horizontal-scrollbar.is-active { opacity: 1; pointer-events: auto; }
+.rvg-vertical-scrollbar { right: 2px; width: 9px; }
+.rvg-horizontal-scrollbar { height: 9px; }
+.rvg-vertical-scrollbar-thumb,
+.rvg-horizontal-scrollbar-thumb { position: absolute; border-radius: 999px; background: #92979c; opacity: .82; cursor: default; }
+.rvg-vertical-scrollbar-thumb { top: 0; right: 1px; width: 7px; min-height: 28px; }
+.rvg-horizontal-scrollbar-thumb { bottom: 1px; left: 0; height: 7px; min-width: 36px; }
+.rvg-vertical-scrollbar:hover .rvg-vertical-scrollbar-thumb,
+.rvg-horizontal-scrollbar:hover .rvg-horizontal-scrollbar-thumb,
+.rvg-vertical-scrollbar-thumb:hover,
+.rvg-horizontal-scrollbar-thumb:hover { opacity: 1; }
 .rvg-text-scroll-clip,
 .rvg-body-text-clip { position: absolute; top: 0; bottom: 0; overflow: hidden; pointer-events: none; }
 .rvg-text-scroll-clip { position: absolute; }
@@ -51,6 +67,7 @@
 .rvg-body-text-clip { right: 0; left: 0; }
 .rvg-cell-text,
 .rvg-header-title { position: absolute; display: flex; align-items: center; min-width: 0; padding: 0 10px; overflow: hidden; color: var(--rvg-color-text); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; user-select: text; pointer-events: auto; cursor: text; }
+.rvg-header-title { pointer-events: none; cursor: default; }
 .rvg-cell-text { transition: transform 140ms ease, opacity 100ms ease; }
 .rvg-row-drop-settling .rvg-cell-text,
 .rvg-row-drop-settling .rvg-row-drag-icon,
@@ -96,6 +113,12 @@
 .rvg-selection-dot { fill: var(--rvg-color-primary); }
 .rvg-selection-focus { position: absolute; z-index: 4; border: 2px solid var(--rvg-color-primary); box-sizing: border-box; pointer-events: none; }
 .rvg-header-title { z-index: 1; color: var(--rvg-color-muted); font-weight: 600; }
+.rvg-header-group { z-index: 3; border-right: 1px solid var(--rvg-color-grid); border-bottom: 1px solid var(--rvg-color-grid); background: var(--rvg-color-header-bg); box-sizing: border-box; }
+.rvg-header-group.is-leaf { z-index: 2; }
+.rvg-text-fixed-shadow { position: absolute; z-index: 4; top: 0; bottom: 0; width: 10px; pointer-events: none; }
+.rvg-text-fixed-shadow.is-left { background: linear-gradient(90deg, rgba(5, 5, 5, 0.06), transparent); }
+.rvg-text-fixed-shadow.is-right { background: linear-gradient(90deg, transparent, rgba(5, 5, 5, 0.06)); }
+.rvg-text-fixed-border { position: absolute; z-index: 5; top: 0; bottom: 0; width: 1px; background: var(--rvg-color-grid); pointer-events: none; }
 .rvg-header-icons { position: absolute; z-index: 2; top: 0; right: 0; left: 0; overflow: hidden; pointer-events: none; }
 .rvg-header-scroll-clip { position: absolute; top: 0; bottom: 0; overflow: hidden; }
 .rvg-header-icon-layer { position: absolute; inset: 0; }
