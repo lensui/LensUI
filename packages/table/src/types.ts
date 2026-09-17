@@ -34,6 +34,7 @@ export interface TableLabels {
   sortDesc: string;
   sortBoth: string;
   dragColumn: string;
+  revealSelectedCell: string;
   previousYear: string;
   nextYear: string;
   previousMonth: string;

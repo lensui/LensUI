@@ -120,6 +120,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   const leftFixedWidth = columns.reduce((value, column, index) => column.fixed === 'left' ? value + metrics[index].width : value, 0);
   const rightFixedWidth = columns.reduce((value, column, index) => column.fixed === 'right' ? value + metrics[index].width : value, 0);
   const rightFixedLeft = width - rightFixedWidth;
+  const rightFixedBoundaryInset = rightFixedWidth > 0 && !verticalBorderless ? 1 : 0;
 
   const leftOffsets = new Map<number, number>();
   let leftOffset = 0;
@@ -409,22 +410,24 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
     const markerBottom = Math.min(bottom, height);
     const startX = getColumnX(columnStart);
     const endX = getColumnX(columnEnd) + metrics[columnEnd].width;
-    const visibleLeft = columns[columnStart].fixed === 'left' ? Math.max(0, startX) : Math.max(leftFixedWidth - 1, startX);
+    const visibleLeft = columns[columnStart].fixed === 'left' ? Math.max(0, startX) : Math.max(leftFixedWidth, startX);
     const visibleRight = columns[columnEnd].fixed === 'right' ? Math.min(width, endX) : Math.min(rightFixedLeft, endX);
     ctx.fillStyle = colors.selection;
     if (markerBottom > markerTop) {
       if (columns[columnStart].fixed === undefined && startX < leftFixedWidth) {
-        ctx.fillRect(Math.max(0, leftFixedWidth - 1), markerTop, 2, markerBottom - markerTop);
+        ctx.fillRect(Math.max(0, leftFixedWidth), markerTop, 2, markerBottom - markerTop);
       }
       if (columns[columnEnd].fixed === undefined && endX > rightFixedLeft) {
-        ctx.fillRect(Math.max(0, rightFixedLeft - 1), markerTop, 2, markerBottom - markerTop);
+        ctx.fillRect(Math.max(0, rightFixedLeft - 2 - rightFixedBoundaryInset), markerTop, 2, markerBottom - markerTop);
       }
     }
     if (visibleRight > visibleLeft) {
       if (top < clipTop) ctx.fillRect(visibleLeft, clipTop, visibleRight - visibleLeft, 2);
       if (bottom > height) ctx.fillRect(visibleLeft, height - 2, visibleRight - visibleLeft, 2);
     } else if (top < clipTop || bottom > height) {
-      const markerX = endX <= leftFixedWidth ? Math.max(0, leftFixedWidth - 1) : Math.max(0, rightFixedLeft - 1);
+      const markerX = endX <= leftFixedWidth
+        ? Math.max(0, leftFixedWidth)
+        : Math.max(0, rightFixedLeft - 2 - rightFixedBoundaryInset);
       ctx.fillRect(markerX, top < clipTop ? clipTop : height - 2, 2, 2);
     }
   }
@@ -450,15 +453,15 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const visibleRight = x + selectionWidth;
       const visibleBottom = y + selectionHeight;
       const selectionTop = fixedHeader ? bodyTop : 0;
-      const selectionClipTop = fixedHeader ? Math.max(0, selectionTop - 1) : selectionTop;
+      const selectionClipTop = selectionTop;
       const hiddenAboveHeader = visibleBottom <= selectionTop;
       const hiddenBelowViewport = y >= height;
       const hiddenBehindLeft = !isFixed && visibleRight <= visibleLeft;
       const hiddenBehindRight = !isFixed && x >= selectionAreaRight;
-      const leftMarkerX = Math.max(0, leftFixedWidth - 1);
+      const leftMarkerX = Math.max(0, leftFixedWidth);
       if ((hiddenAboveHeader || hiddenBelowViewport) && (hiddenBehindLeft || hiddenBehindRight)) {
         const markerSize = 2;
-        const markerX = hiddenBehindLeft ? leftMarkerX : selectionAreaRight - borderWidth;
+        const markerX = hiddenBehindLeft ? leftMarkerX : selectionAreaRight - borderWidth - rightFixedBoundaryInset;
         const markerY = hiddenAboveHeader ? selectionClipTop : height - markerSize;
         ctx.fillStyle = colors.selection;
         ctx.fillRect(markerX, markerY, markerSize, markerSize);
@@ -466,7 +469,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       ctx.save();
       ctx.beginPath();
-      const clipLeft = fixedSide === 'left' ? 0 : Math.max(0, leftFixedWidth - 1);
+      const clipLeft = fixedSide === 'left' ? 0 : Math.max(0, leftFixedWidth);
       const clipRight = Math.min(width, selectionAreaRight + 1);
       ctx.rect(clipLeft, selectionClipTop, clipRight - clipLeft, height - selectionClipTop);
       ctx.clip();
@@ -484,7 +487,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       if (hiddenBehindLeft || hiddenBehindRight) {
         const markerTop = Math.max(y - borderWidth, selectionTop);
         const markerBottom = Math.min(y + selectionHeight + 1, height);
-        const markerX = hiddenBehindLeft ? leftMarkerX : selectionAreaRight - borderWidth;
+        const markerX = hiddenBehindLeft ? leftMarkerX : selectionAreaRight - borderWidth - rightFixedBoundaryInset;
         ctx.fillRect(markerX, markerTop, borderWidth, Math.max(0, markerBottom - markerTop));
       }
       if (hiddenAboveHeader || hiddenBelowViewport || hiddenBehindLeft || hiddenBehindRight) {
@@ -492,7 +495,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         return;
       }
       // Hidden edges stick to the frozen-pane boundaries, matching spreadsheet selection behavior.
-      const borderLeft = x <= 0 ? 0 : Math.max(x - borderWidth, visibleLeft - 1);
+      const borderLeft = x <= 0 ? 0 : Math.max(x - borderWidth, visibleLeft);
       const borderRight = Math.min(x + selectionWidth - 1, selectionAreaRight - borderWidth, width - borderWidth);
       const borderTop = Math.max(y - borderWidth, selectionClipTop);
       const borderBottom = Math.min(y + selectionHeight - 1, height - borderWidth);

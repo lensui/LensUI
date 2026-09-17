@@ -19,15 +19,23 @@ import { useControllableKeys, useControllableValue } from './hooks/useControllab
 import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableResolvedCellSpan, ViewportRange } from './types';
 
 interface ScrollPosition { left: number; top: number }
+interface SelectionEdgeIndicator {
+  side: 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  orientation: 'vertical' | 'horizontal' | 'corner';
+  style: CSSProperties;
+  corner?: { width: number; height: number };
+  viewportEdge?: 'left' | 'right' | 'top' | 'bottom';
+}
 type ColumnDrag =
   {
     type: 'resize';
     columnIndex: number;
     startX: number;
     startWidth: number;
-    startGuideX: number;
     guideTop: number;
     resizeEdge: 'left' | 'right';
+    resizeStartIndex: number;
+    resizeEndIndex: number;
     resizeIndices: number[];
     startWidths: number[];
   };
@@ -171,6 +179,31 @@ const createEmptyCellSpanLookup = (): CellSpanLookup => ({
   covered: new Map(),
   maxRowSpan: 1,
 });
+
+const summaryFunctionIds = new WeakMap<Function, number>();
+let nextSummaryFunctionId = 1;
+
+function getSummaryFunctionId(fn: Function | undefined) {
+  if (!fn) return '';
+  const existing = summaryFunctionIds.get(fn);
+  if (existing !== undefined) return existing;
+  const next = nextSummaryFunctionId;
+  nextSummaryFunctionId += 1;
+  summaryFunctionIds.set(fn, next);
+  return next;
+}
+
+function getSummarySignature<Row extends object>(columns: InternalGridColumn<Row>[]) {
+  return columns
+    .filter((column) => Boolean(column.summary))
+    .map((column) => [
+      column.key,
+      String(column.dataIndex ?? ''),
+      typeof column.summary === 'function' ? getSummaryFunctionId(column.summary) : 'sum',
+      getSummaryFunctionId(column.formatter),
+    ].join('\u0001'))
+    .join('\u0002');
+}
 
 async function calculateSummaryValues<Row extends object>(
   columns: InternalGridColumn<Row>[],
@@ -382,6 +415,7 @@ export function Table<Row extends object>({
   const dragGuideRef = useRef<HTMLDivElement>(null);
   const rowDragGuideRef = useRef<HTMLDivElement>(null);
   const selectionFocusRef = useRef<HTMLDivElement>(null);
+  const selectionEdgeTargetRef = useRef<HTMLButtonElement>(null);
   const verticalScrollbarRef = useRef<HTMLDivElement>(null);
   const verticalScrollbarThumbRef = useRef<HTMLDivElement>(null);
   const verticalScrollbarDragRef = useRef<{ pointerId: number; startY: number; startTop: number; trackHeight: number; thumbHeight: number; maxScrollTop: number } | null>(null);
@@ -687,7 +721,8 @@ export function Table<Row extends object>({
   ), [fixedWidth, scrollableColumnLefts]);
   const hasRowSelectionColumn = useMemo(() => columns.some((column) => column.rowSelection), [columns]);
   const rowSelectionMode = typeof rowSelection === 'object' ? rowSelection.mode ?? 'multiple' : 'multiple';
-  const hasSummaryRow = useMemo(() => rows.length > 0 && summaryEnabled && columns.some((column) => Boolean(column.summary)), [columns, rows.length, summaryEnabled]);
+  const summarySignature = useMemo(() => getSummarySignature(columns), [columns]);
+  const hasSummaryRow = rows.length > 0 && summaryEnabled && summarySignature.length > 0;
   const topSummaryHeight = hasSummaryRow && summaryPosition === 'top' ? rowHeight : 0;
   const bottomSummaryHeight = hasSummaryRow && summaryPosition === 'bottom' ? rowHeight : 0;
   const bodyTop = headerHeight + topSummaryHeight;
@@ -697,32 +732,32 @@ export function Table<Row extends object>({
   const renderHeight = Math.max(0, effectiveHeight - bottomSummaryHeight);
   const bodyViewportHeight = Math.max(0, renderHeight - (fixedHeader ? headerHeight + topSummaryHeight : 0));
   const [summaryState, setSummaryState] = useState<{
-    columns: InternalGridColumn<Row>[] | null;
+    signature: string;
     rows: Row[] | null;
     values: Map<string, ReactNode>;
     pending: boolean;
-  }>(() => ({ columns: null, rows: null, values: new Map(), pending: false }));
+  }>(() => ({ signature: '', rows: null, values: new Map(), pending: false }));
   const summaryPending = hasSummaryRow
-    && (loading || summaryState.pending || summaryState.columns !== columns || summaryState.rows !== rows);
-  const summaryValues = hasSummaryRow && summaryState.columns === columns && summaryState.rows === rows
+    && (loading || summaryState.pending || summaryState.signature !== summarySignature || summaryState.rows !== rows);
+  const summaryValues = hasSummaryRow && summaryState.signature === summarySignature && summaryState.rows === rows
     ? summaryState.values
     : new Map<string, ReactNode>();
 
   useEffect(() => {
     let cancelled = false;
     if (!hasSummaryRow) {
-      setSummaryState((current) => current.columns === null && current.rows === null && current.values.size === 0 && !current.pending
+      setSummaryState((current) => current.signature === '' && current.rows === null && current.values.size === 0 && !current.pending
         ? current
-        : { columns: null, rows: null, values: new Map(), pending: false });
+        : { signature: '', rows: null, values: new Map(), pending: false });
       return () => {
         cancelled = true;
       };
     }
 
     setSummaryState((current) => ({
-      columns,
+      signature: summarySignature,
       rows,
-      values: current.columns === columns && current.rows === rows ? current.values : new Map(),
+      values: current.signature === summarySignature && current.rows === rows ? current.values : new Map(),
       pending: true,
     }));
 
@@ -737,13 +772,13 @@ export function Table<Row extends object>({
       if (cancelled) return;
       const values = await calculateSummaryValues(columns, rows);
       if (cancelled) return;
-      setSummaryState({ columns, rows, values, pending: false });
+      setSummaryState({ signature: summarySignature, rows, values, pending: false });
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [columns, hasSummaryRow, loading, rows]);
+  }, [hasSummaryRow, loading, rows, summarySignature]);
 
   // The canvas draws the grid chrome and cell backgrounds. Text is rendered in
   // a lightweight DOM overlay so users can select/copy visible text naturally.
@@ -928,6 +963,174 @@ export function Table<Row extends object>({
   const scheduleDraw = useCallback(() => {
     if (frameRef.current === null) frameRef.current = requestAnimationFrame(draw);
   }, [draw]);
+
+  const drawImmediately = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    draw();
+  }, [draw]);
+
+  const getSelectionHorizontalVisibility = useCallback((scrollLeft: number) => {
+    if (!selection || selectionRange) return 'visible';
+    const column = columns[selection.columnIndex];
+    if (!column || column.fixed !== undefined) return 'visible';
+    const span = getCellSpan(selection.rowIndex, selection.columnIndex);
+    const left = getScrollableColumnLeft(selection.columnIndex) - scrollLeft;
+    const right = left + getCellDisplayWidth(selection.columnIndex, span?.colSpan ?? 1);
+    if (right <= fixedWidth) return 'hidden-left';
+    if (left >= viewport.width - rightFixedWidth) return 'hidden-right';
+    return 'visible';
+  }, [columns, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, rightFixedWidth, selection, selectionRange, viewport.width]);
+
+  const getSelectionEdgeIndicator = useCallback((scrollLeft: number, scrollTop: number): SelectionEdgeIndicator | null => {
+    if (!selection || selectionRange) return null;
+    const row = rows[selection.rowIndex];
+    const metric = metrics[selection.columnIndex];
+    const column = columns[selection.columnIndex];
+    if (!row || !metric || !column || getRowKey(row, selection.rowIndex) !== selection.rowKey) return null;
+    const span = getCellSpan(selection.rowIndex, selection.columnIndex);
+    const rawLeft = column.fixed === 'left'
+      ? leftFixedOffsets.get(selection.columnIndex) ?? 0
+      : column.fixed === 'right'
+        ? viewport.width - (rightFixedOffsets.get(selection.columnIndex) ?? 0) - metric.width
+        : getScrollableColumnLeft(selection.columnIndex) - scrollLeft;
+    const rawRight = rawLeft + getCellDisplayWidth(selection.columnIndex, span?.colSpan ?? 1);
+    const rawTop = bodyTop + selection.rowIndex * rowHeight - scrollTop;
+    const rawBottom = rawTop + rowHeight * (span?.rowSpan ?? 1);
+    const horizontalStart = column.fixed === undefined ? fixedWidth : 0;
+    const horizontalEnd = column.fixed === undefined ? viewport.width - rightFixedWidth : viewport.width;
+    const verticalStart = fixedHeader ? bodyTop : 0;
+    const hiddenLeft = column.fixed === undefined && rawRight <= horizontalStart;
+    const hiddenRight = column.fixed === undefined && rawLeft >= horizontalEnd;
+    const hiddenTop = rawBottom <= verticalStart;
+    const hiddenBottom = rawTop >= renderHeight;
+    if (!hiddenLeft && !hiddenRight && !hiddenTop && !hiddenBottom) return null;
+
+    const borderWidth = 2;
+    const cornerLength = 10;
+    const hitSlop = 6;
+    const targetSize = borderWidth + hitSlop * 2;
+    const rightBoundaryInset = rightFixedWidth > 0 && hasVerticalBorders ? 1 : 0;
+    const markerX = hiddenLeft
+      ? horizontalStart
+      : horizontalEnd - borderWidth - rightBoundaryInset;
+    const markerY = hiddenTop ? verticalStart : renderHeight - borderWidth;
+
+    if (hiddenLeft || hiddenRight) {
+      let markerTop = Math.max(rawTop - borderWidth, verticalStart);
+      let markerBottom = Math.min(rawBottom + 1, renderHeight);
+      const topClip = Math.max(0, verticalStart - (rawTop - borderWidth));
+      const bottomClip = Math.max(0, rawBottom + 1 - renderHeight);
+      if (topClip > 0 || bottomClip > 0) {
+        const foldAtTop = topClip > 0;
+        const fold = Math.min(cornerLength, foldAtTop ? topClip : bottomClip);
+        if (fold > borderWidth) {
+          const cornerWidth = fold;
+          const cornerHeight = Math.max(cornerLength, markerBottom - markerTop);
+          const cornerOnLeft = hiddenLeft;
+          const shapeLeft = cornerOnLeft ? markerX : markerX + borderWidth - cornerWidth;
+          const shapeTop = foldAtTop ? verticalStart : renderHeight - cornerHeight;
+          return {
+            side: `${foldAtTop ? 'top' : 'bottom'}-${cornerOnLeft ? 'left' : 'right'}`,
+            orientation: 'corner',
+            style: {
+              left: shapeLeft - hitSlop,
+              top: shapeTop - hitSlop,
+              width: cornerWidth + hitSlop * 2,
+              height: cornerHeight + hitSlop * 2,
+            },
+            corner: { width: cornerWidth, height: cornerHeight },
+          };
+        }
+      }
+      if (markerBottom <= markerTop) return null;
+      return {
+        side: hiddenLeft ? 'left' : 'right',
+        orientation: 'vertical',
+        viewportEdge: hiddenLeft && horizontalStart === 0
+          ? 'left'
+          : hiddenRight && horizontalEnd === viewport.width
+            ? 'right'
+            : undefined,
+        style: {
+          left: markerX - hitSlop,
+          top: markerTop,
+          width: targetSize,
+          height: markerBottom - markerTop,
+        },
+      };
+    }
+    const horizontalMarkerEnd = horizontalEnd - rightBoundaryInset;
+    let markerLeft = Math.max(rawLeft - borderWidth, horizontalStart);
+    let markerRight = Math.min(rawRight + 1, horizontalMarkerEnd);
+    const leftClip = Math.max(0, horizontalStart - (rawLeft - borderWidth));
+    const rightClip = Math.max(0, rawRight + 1 - horizontalMarkerEnd);
+    if (leftClip > 0 || rightClip > 0) {
+      const foldAtLeft = leftClip > 0;
+      const fold = Math.min(cornerLength, foldAtLeft ? leftClip : rightClip);
+      if (fold > borderWidth) {
+        const cornerWidth = Math.max(cornerLength, markerRight - markerLeft);
+        const cornerHeight = fold;
+        const shapeLeft = foldAtLeft ? horizontalStart : horizontalMarkerEnd - cornerWidth;
+        const shapeTop = hiddenTop ? verticalStart : renderHeight - cornerHeight;
+        return {
+          side: `${hiddenTop ? 'top' : 'bottom'}-${foldAtLeft ? 'left' : 'right'}`,
+          orientation: 'corner',
+          style: {
+            left: shapeLeft - hitSlop,
+            top: shapeTop - hitSlop,
+            width: cornerWidth + hitSlop * 2,
+            height: cornerHeight + hitSlop * 2,
+          },
+          corner: { width: cornerWidth, height: cornerHeight },
+        };
+      }
+    }
+    if (markerRight <= markerLeft) return null;
+    return {
+      side: hiddenTop ? 'top' : 'bottom',
+      orientation: 'horizontal',
+      viewportEdge: hiddenTop && verticalStart === 0 ? 'top' : hiddenBottom ? 'bottom' : undefined,
+      style: {
+        left: markerLeft,
+        top: markerY - hitSlop,
+        width: markerRight - markerLeft,
+        height: targetSize,
+      },
+    };
+  }, [bodyTop, columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, getScrollableColumnLeft, hasVerticalBorders, leftFixedOffsets, metrics, renderHeight, rightFixedOffsets, rightFixedWidth, rowHeight, rows, selection, selectionRange, viewport.width]);
+
+  const syncSelectionEdgeTarget = useCallback((scrollLeft: number, scrollTop: number) => {
+    const target = selectionEdgeTargetRef.current;
+    if (!target) return;
+    const indicator = getSelectionEdgeIndicator(scrollLeft, scrollTop);
+    if (!indicator) {
+      target.style.visibility = 'hidden';
+      return;
+    }
+    const orientationChanged = !target.classList.contains(`is-${indicator.orientation}`);
+    target.className = `rvg-selection-edge-target is-${indicator.orientation} is-${indicator.side}${indicator.viewportEdge ? ` is-viewport-${indicator.viewportEdge}` : ''}${orientationChanged ? ' is-shape-syncing' : ''}`;
+    target.style.left = `${Number(indicator.style.left)}px`;
+    target.style.top = `${Number(indicator.style.top)}px`;
+    target.style.width = `${Number(indicator.style.width)}px`;
+    target.style.height = `${Number(indicator.style.height)}px`;
+    if (indicator.corner) {
+      target.style.setProperty('--rvg-corner-width', `${indicator.corner.width}px`);
+      target.style.setProperty('--rvg-corner-height', `${indicator.corner.height}px`);
+      target.style.setProperty('--rvg-corner-hover-width-extension', '4px');
+      target.style.setProperty('--rvg-corner-hover-height-extension', '4px');
+    } else {
+      target.style.removeProperty('--rvg-corner-width');
+      target.style.removeProperty('--rvg-corner-height');
+      target.style.removeProperty('--rvg-corner-hover-width-extension');
+      target.style.removeProperty('--rvg-corner-hover-height-extension');
+    }
+    target.style.visibility = 'visible';
+    if (orientationChanged) {
+      void target.offsetWidth;
+      target.classList.remove('is-shape-syncing');
+    }
+  }, [getSelectionEdgeIndicator]);
 
   useLayoutEffect(() => {
     const element = scrollerRef.current;
@@ -1197,7 +1400,13 @@ export function Table<Row extends object>({
     }
     const nextThumbLeft = Math.max(0, Math.min(trackWidth - thumbWidth, event.clientX - trackRect.left - thumbWidth / 2));
     const maxThumbLeft = Math.max(1, trackWidth - thumbWidth);
-    scroller.scrollLeft = (nextThumbLeft / maxThumbLeft) * maxScrollLeft;
+    const previousScrollLeft = scroller.scrollLeft;
+    const nextScrollLeft = (nextThumbLeft / maxThumbLeft) * maxScrollLeft;
+    const visibilityChanged = getSelectionHorizontalVisibility(previousScrollLeft) !== getSelectionHorizontalVisibility(nextScrollLeft);
+    scroller.scrollLeft = nextScrollLeft;
+    scrollRef.current = { left: scroller.scrollLeft, top: scroller.scrollTop };
+    syncSelectionEdgeTarget(scroller.scrollLeft, scroller.scrollTop);
+    if (visibilityChanged) drawImmediately();
     updateCustomScrollbars();
     horizontalScrollbarDragRef.current = {
       pointerId: event.pointerId,
@@ -1207,7 +1416,7 @@ export function Table<Row extends object>({
       thumbWidth,
       maxScrollLeft,
     };
-  }, [showCustomScrollbar, updateCustomScrollbars]);
+  }, [drawImmediately, getSelectionHorizontalVisibility, showCustomScrollbar, syncSelectionEdgeTarget, updateCustomScrollbars]);
 
   const handleHorizontalScrollbarPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = horizontalScrollbarDragRef.current;
@@ -1216,9 +1425,15 @@ export function Table<Row extends object>({
     event.preventDefault();
     const maxThumbLeft = Math.max(1, drag.trackWidth - drag.thumbWidth);
     const nextThumbLeft = Math.max(0, Math.min(maxThumbLeft, drag.startLeft + event.clientX - drag.startX));
-    scroller.scrollLeft = (nextThumbLeft / maxThumbLeft) * drag.maxScrollLeft;
+    const previousScrollLeft = scroller.scrollLeft;
+    const nextScrollLeft = (nextThumbLeft / maxThumbLeft) * drag.maxScrollLeft;
+    const visibilityChanged = getSelectionHorizontalVisibility(previousScrollLeft) !== getSelectionHorizontalVisibility(nextScrollLeft);
+    scroller.scrollLeft = nextScrollLeft;
+    scrollRef.current = { left: scroller.scrollLeft, top: scroller.scrollTop };
+    syncSelectionEdgeTarget(scroller.scrollLeft, scroller.scrollTop);
+    if (visibilityChanged) drawImmediately();
     updateCustomScrollbars();
-  }, [updateCustomScrollbars]);
+  }, [drawImmediately, getSelectionHorizontalVisibility, syncSelectionEdgeTarget, updateCustomScrollbars]);
 
   const handleHorizontalScrollbarPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = horizontalScrollbarDragRef.current;
@@ -1235,6 +1450,7 @@ export function Table<Row extends object>({
     const scrollDeltaX = element.scrollLeft - previousScroll.left;
     const scrollDeltaY = element.scrollTop - previousScroll.top;
     scrollRef.current = { left: element.scrollLeft, top: element.scrollTop };
+    syncSelectionEdgeTarget(element.scrollLeft, element.scrollTop);
     const focus = selectionFocusRef.current;
     if (focus && selection && !selectionRange) {
       const row = rows[selection.rowIndex];
@@ -1260,9 +1476,9 @@ export function Table<Row extends object>({
           focus.style.display = 'none';
         } else {
           const borderWidth = 2;
-          const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart - 1));
+          const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart));
           const right = Math.round(Math.min(rawRight + 1, horizontalEnd, viewport.width));
-          const top = Math.round(Math.max(rawTop - borderWidth, verticalStart - 1));
+          const top = Math.round(Math.max(rawTop - borderWidth, verticalStart));
           const bottom = Math.round(Math.min(rawBottom + 1, renderHeight));
           focus.style.display = 'block';
           focus.style.left = `${left}px`;
@@ -1292,7 +1508,7 @@ export function Table<Row extends object>({
     setHoveredCellTooltip(null);
     scheduleDraw();
     setEditing(null);
-  }, [bodyTop, columns, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, getScrollableColumnLeft, metrics, rightFixedOffsets, rightFixedWidth, rowHeight, rows, scheduleDraw, selection, selectionRange, showCustomScrollbar, updateCustomScrollbars, viewport.width]);
+  }, [bodyTop, columns, renderHeight, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getRowKey, getScrollableColumnLeft, metrics, rightFixedOffsets, rightFixedWidth, rowHeight, rows, scheduleDraw, selection, selectionRange, showCustomScrollbar, syncSelectionEdgeTarget, updateCustomScrollbars, viewport.width]);
 
   const locateColumn = useCallback((clientX: number): number => {
     const canvas = canvasRef.current;
@@ -1400,6 +1616,38 @@ export function Table<Row extends object>({
       : getCellDisplayWidth(cell.startIndex, cell.endIndex - cell.startIndex + 1)
   ), [getCellDisplayWidth, metrics]);
 
+  const getHeaderCellEdgeFromMetrics = useCallback((
+    startIndex: number,
+    endIndex: number,
+    edge: 'left' | 'right',
+    nextMetrics: typeof metrics,
+  ) => {
+    const fixedSide = columns[startIndex]?.fixed;
+    const width = nextMetrics
+      .slice(startIndex, endIndex + 1)
+      .reduce((total, metric) => total + metric.width, 0);
+    let left: number;
+    if (fixedSide === 'left') {
+      left = 0;
+      for (let index = 0; index < startIndex; index += 1) {
+        if (columns[index].fixed === 'left') left += nextMetrics[index]?.width ?? 0;
+      }
+    } else if (fixedSide === 'right') {
+      let rightOffset = 0;
+      for (let index = columns.length - 1; index > startIndex; index -= 1) {
+        if (columns[index].fixed === 'right') rightOffset += nextMetrics[index]?.width ?? 0;
+      }
+      left = viewport.width - rightOffset - width;
+    } else {
+      left = 0;
+      for (let index = 0; index < startIndex; index += 1) {
+        if (columns[index].fixed === undefined) left += nextMetrics[index]?.width ?? 0;
+      }
+      left += fixedWidth - scrollRef.current.left;
+    }
+    return left + (edge === 'right' ? width : 0);
+  }, [columns, fixedWidth, viewport.width]);
+
   const locateHeaderResizeHit = useCallback((clientX: number, clientY: number): HeaderResizeHit<Row> | null => {
     if (!columnResizable || !canvasRef.current) return null;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -1410,6 +1658,7 @@ export function Table<Row extends object>({
     const level = getHeaderLevelAtY(localY, headerY);
     let closest: HeaderResizeHit<Row> | null = null;
     let distance = 6;
+    let priority = -1;
     for (const cell of headerCells) {
       if (cell.level !== level) continue;
       if (columns[cell.startIndex]?.rowSelection || columns[cell.startIndex]?.rowDragHandle || columns[cell.startIndex]?.rowNumber) continue;
@@ -1417,8 +1666,10 @@ export function Table<Row extends object>({
       const edge = fixedSide === 'right' && cell.leaf ? 'left' : 'right';
       const edgeX = getHeaderCellLeft(cell) + (edge === 'right' ? getHeaderCellWidth(cell) : 0);
       const nextDistance = Math.abs(localX - edgeX);
-      if (nextDistance < distance) {
+      const nextPriority = fixedSide === 'right' ? 2 : fixedSide === 'left' ? 1 : 0;
+      if (nextDistance < distance || (nextDistance === distance && nextPriority > priority)) {
         distance = nextDistance;
+        priority = nextPriority;
         closest = { cell, edge };
       }
     }
@@ -1657,6 +1908,10 @@ export function Table<Row extends object>({
         columnDragPreviewRef.current = { sourceIndex, targetIndex: destinationIndex };
         const targetLeft = Number(target?.targetLeft);
         const targetWidth = Number(target?.targetWidth);
+        if (!Number.isFinite(targetLeft) || !Number.isFinite(targetWidth)) {
+          setDragGuide(null);
+          return;
+        }
         const guideTop = headerRowOffsets[Number(source.data.headerLevel)] ?? 0;
         setDragGuide(edge === 'right' ? targetLeft + targetWidth : targetLeft, guideTop);
       },
@@ -2118,7 +2373,9 @@ export function Table<Row extends object>({
   const editorStyle = useMemo(() => {
     if (!editing) return undefined;
     const metric = metrics[editing.columnIndex];
-    const fixedSide = columns[editing.columnIndex].fixed;
+    const column = columns[editing.columnIndex];
+    if (!metric || !column) return undefined;
+    const fixedSide = column.fixed;
     const span = getCellSpan(editing.rowIndex, editing.columnIndex);
     const cellWidth = getCellDisplayWidth(editing.columnIndex, span?.colSpan ?? 1);
     const cellHeight = rowHeight * (span?.rowSpan ?? 1);
@@ -2127,13 +2384,21 @@ export function Table<Row extends object>({
       : fixedSide === 'right'
         ? viewport.width - (rightFixedOffsets.get(editing.columnIndex) ?? 0) - metric.width
         : getScrollableColumnLeft(editing.columnIndex) - scrollRef.current.left;
+    const cellTop = bodyTop + editing.rowIndex * rowHeight - scrollRef.current.top;
+    const horizontalStart = fixedSide === undefined ? fixedWidth : 0;
+    const horizontalEnd = fixedSide === undefined ? viewport.width - rightFixedWidth : viewport.width;
+    const verticalStart = fixedHeader ? bodyTop : 0;
+    const visibleLeft = Math.max(cellLeft, horizontalStart);
+    const visibleRight = Math.min(cellLeft + cellWidth, horizontalEnd, viewport.width);
+    const visibleTop = Math.max(cellTop, verticalStart);
+    const visibleBottom = Math.min(cellTop + cellHeight, renderHeight);
     return {
-      left: (fixedSide ? cellLeft : Math.max(cellLeft, fixedWidth)) + 1,
-      top: Math.max(fixedHeader ? bodyTop : 0, bodyTop + editing.rowIndex * rowHeight - scrollRef.current.top) + 1,
-      width: cellWidth - 2,
-      height: cellHeight - 2,
+      left: visibleLeft,
+      top: visibleTop,
+      width: Math.max(0, visibleRight - visibleLeft),
+      height: Math.max(0, visibleBottom - visibleTop),
     };
-  }, [bodyTop, columns, editing, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, leftFixedOffsets, metrics, rightFixedOffsets, rowHeight, viewport.width]);
+  }, [bodyTop, columns, editing, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, leftFixedOffsets, metrics, renderHeight, rightFixedOffsets, rightFixedWidth, rowHeight, viewport.width]);
 
   const handleColumnPointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -2156,9 +2421,10 @@ export function Table<Row extends object>({
         columnIndex: resizeIndex,
         startX: event.clientX,
         startWidth: startWidths.reduce((total, width) => total + width, 0),
-        startGuideX,
         guideTop: headerRowOffsets[resizeCell.level] ?? 0,
         resizeEdge,
+        resizeStartIndex: resizeCell.startIndex,
+        resizeEndIndex: resizeCell.endIndex,
         resizeIndices,
         startWidths,
       };
@@ -2176,6 +2442,14 @@ export function Table<Row extends object>({
     const minWidth = getMinimumColumnWidth(column, columnDraggable);
     const pointerDelta = Math.round(event.clientX - drag.startX);
     const delta = drag.resizeEdge === 'left' ? -pointerDelta : pointerDelta;
+    const setGuideFromWidths = (nextWidths: number[]) => {
+      const widthByIndex = new Map(drag.resizeIndices.map((columnIndex, index) => [columnIndex, nextWidths[index]]));
+      const nextColumns = columns.map((column, index) => (
+        widthByIndex.has(index) ? { ...column, width: widthByIndex.get(index) } : column
+      ));
+      const nextMetrics = buildColumnMetrics(nextColumns, { columnDraggable, viewportWidth: viewport.width });
+      setResizeGuideX(getHeaderCellEdgeFromMetrics(drag.resizeStartIndex, drag.resizeEndIndex, drag.resizeEdge, nextMetrics));
+    };
     if (drag.resizeIndices.length > 1) {
       const minWidths = drag.resizeIndices.map((index) => getMinimumColumnWidth(columns[index], columnDraggable));
       const minTotalWidth = minWidths.reduce((total, width) => total + width, 0);
@@ -2192,13 +2466,13 @@ export function Table<Row extends object>({
       drag.resizeIndices.forEach((columnIndex, index) => {
         resizeColumn(columns[columnIndex].key, nextWidths[index]);
       });
-      setResizeGuideX(drag.startGuideX + (drag.resizeEdge === 'left' ? drag.startWidth - targetTotalWidth : targetTotalWidth - drag.startWidth));
+      setGuideFromWidths(nextWidths);
       return;
     }
     const width = Math.max(minWidth, Math.round(drag.startWidth + delta));
     resizeColumn(column.key, width);
-    setResizeGuideX(drag.startGuideX + (drag.resizeEdge === 'left' ? drag.startWidth - width : width - drag.startWidth));
-  }, [columnDraggable, columns, resizeColumn]);
+    setGuideFromWidths([width]);
+  }, [columnDraggable, columns, getHeaderCellEdgeFromMetrics, resizeColumn, viewport.width]);
 
   const handleColumnPointerUp = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = columnDragRef.current;
@@ -2831,9 +3105,9 @@ export function Table<Row extends object>({
       || rawTop >= renderHeight
     ) return null;
     const borderWidth = 2;
-    const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart - 1));
+    const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart));
     const right = Math.round(Math.min(rawRight + 1, horizontalEnd, viewport.width));
-    const top = Math.round(Math.max(rawTop - borderWidth, verticalStart - 1));
+    const top = Math.round(Math.max(rawTop - borderWidth, verticalStart));
     const bottom = Math.round(Math.min(rawBottom + 1, renderHeight));
     return {
       left,
@@ -2842,6 +3116,21 @@ export function Table<Row extends object>({
       height: Math.max(0, bottom - top),
     } as CSSProperties;
   })();
+
+  const selectionEdgeIndicator = getSelectionEdgeIndicator(scrollPosition.left, scrollPosition.top);
+  const selectionEdgeStyle = selectionEdgeIndicator ? {
+    ...selectionEdgeIndicator.style,
+    ...(selectionEdgeIndicator.corner ? {
+      '--rvg-corner-width': `${selectionEdgeIndicator.corner.width}px`,
+      '--rvg-corner-height': `${selectionEdgeIndicator.corner.height}px`,
+      '--rvg-corner-hover-width-extension': '4px',
+      '--rvg-corner-hover-height-extension': '4px',
+    } : null),
+  } as CSSProperties : undefined;
+
+  useLayoutEffect(() => {
+    syncSelectionEdgeTarget(scrollPosition.left, scrollPosition.top);
+  }, [scrollPosition.left, scrollPosition.top, syncSelectionEdgeTarget]);
 
   const handleContextMenu = (event: React.MouseEvent<HTMLElement>) => {
     event.preventDefault();
@@ -3373,6 +3662,31 @@ export function Table<Row extends object>({
         />
       )}
       {selectionOutlineStyle && <div ref={selectionFocusRef} className="rvg-selection-focus" style={selectionOutlineStyle} aria-hidden="true" />}
+      {selectionEdgeIndicator && selection && (
+        <button
+          ref={selectionEdgeTargetRef}
+          type="button"
+          className={`rvg-selection-edge-target is-${selectionEdgeIndicator.orientation} is-${selectionEdgeIndicator.side}${selectionEdgeIndicator.viewportEdge ? ` is-viewport-${selectionEdgeIndicator.viewportEdge}` : ''}`}
+          style={selectionEdgeStyle}
+          aria-label={labels.revealSelectedCell}
+          title={labels.revealSelectedCell}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            scrollerRef.current?.focus({ preventScroll: true });
+            revealCell(selection);
+          }}
+        >
+          <span className="rvg-selection-edge-halo" aria-hidden="true">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+              <path d="M 0 100 L 0 0 L 100 0" />
+            </svg>
+          </span>
+        </button>
+      )}
       {contextMenu && (
         <div ref={contextMenuRef} className="rvg-context-menu" role="menu" style={{ left: contextMenu.left, top: contextMenu.top }}>
           {contextMenu.type === 'header' ? (() => {
@@ -3711,8 +4025,8 @@ export function Table<Row extends object>({
               })}
             </div>
           ))}
-          {fixedWidth > 0 && <div className="rvg-loading-fixed-shadow is-left" style={{ left: fixedWidth }} />}
-          {rightFixedWidth > 0 && <div className="rvg-loading-fixed-shadow is-right" style={{ right: rightFixedWidth }} />}
+          {fixedWidth > 0 && currentScroll.left > 0 && <div className="rvg-loading-fixed-shadow is-left" style={{ left: fixedWidth }} />}
+          {rightFixedWidth > 0 && currentScroll.left < contentWidth - viewport.width && <div className="rvg-loading-fixed-shadow is-right" style={{ right: rightFixedWidth }} />}
         </div>
       )}
       {loading && !hasCustomLoading && hasCompletedLoadRef.current && (

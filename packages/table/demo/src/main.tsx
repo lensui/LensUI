@@ -136,7 +136,6 @@ const columns: GridColumn<Person>[] = [
     key: "name",
     title: "姓名",
     dataIndex: "name",
-    fixed: "left",
     editable: true,
     sortable: true,
     filterable: true,
@@ -308,7 +307,6 @@ const columns: GridColumn<Person>[] = [
     editable: true,
     sortable: true,
     filterable: true,
-    fixed: "right",
   },
   {
     key: "amount",
@@ -337,7 +335,7 @@ const columns: GridColumn<Person>[] = [
 function App() {
   const initialRows = useMemo<Person[]>(
     () =>
-      Array.from({ length: 100000 }, (_, index) => ({
+      Array.from({ length: 1000 }, (_, index) => ({
         id: index + 1,
         name: `用户 ${index + 1}`,
         department: ["研发", "设计", "市场"][index % 3],
@@ -637,12 +635,12 @@ function App() {
         onSortStateChange={setSortState}
         filterValues={filterValues}
         onFilterValuesChange={setFilterValues}
-        // onColumnResize={resizeColumn}
         onColumnOrderChange={reorderColumns}
         onRowOrderChange={reorderRows}
         onInsertRows={insertRows}
         onDeleteRows={deleteRows}
         onCellChange={handleChange}
+        summary
       />
     </main>
   );
