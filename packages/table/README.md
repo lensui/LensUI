@@ -119,10 +119,10 @@ export function Example() {
 | `onSelectedColumnKeysChange` | `(keys) => void`                                                                   | -                 | 列选择变化回调。                                                                                                                        |
 | `columnDraggable`            | `boolean`                                                                          | `true`          | 是否允许拖拽调整列顺序。默认开启，普通列默认显示表头拖拽入口，传`false` 可关闭。                                                      |
 | `columnResizable`            | `boolean`                                                                          | `false`         | 是否允许拖拽调整列宽。                                                                                                                  |
-| `onColumnOrderChange`        | `(sourceIndex, targetIndex) => void`                                               | -                 | 列拖拽排序回调。需要在外部更新`columns`。                                                                                             |
+| `onColumnOrderChange`        | `(columns, detail) => void`                                                        | -                 | 列拖拽排序完成回调，返回排序后的列和索引详情。                                                                                         |
 | `onColumnResize`             | `(columnKey, width) => void`                                                       | -                 | 列宽变化回调。未传时组件会在内部维护列宽；传入后可用于持久化或受控同步。                                                                |
 | `rowDraggable`               | `boolean`                                                                          | `false`         | 是否允许拖拽调整行顺序。开启后组件自动生成左侧拖拽手柄列，不需要在`columns` 中配置。                                                  |
-| `onRowOrderChange`           | `(sourceIndex, targetIndex) => void`                                               | -                 | 行拖拽排序回调。需要在外部更新`rows`。                                                                                                |
+| `onRowOrderChange`           | `(rows, detail) => void`                                                           | -                 | 行拖拽排序完成回调，返回排序后的行和索引详情。                                                                                         |
 | `onInsertRows`               | `(event) => void`                                                                  | -                 | 右键菜单插入行回调。                                                                                                                    |
 | `onDeleteRows`               | `(event) => void`                                                                  | -                 | 右键菜单删除行回调。                                                                                                                    |
 | `sortState`                  | `GridSortState \| null`                                                             | 非受控            | 受控排序状态。组件只管理 UI 状态，数据排序由外部完成。                                                                                  |
@@ -492,7 +492,7 @@ const visibleRows = useMemo(() => {
 
 ## 拖拽和列宽
 
-拖拽排序采用外部受控数据模式：组件告诉你发生了什么，真正的 `rows` 或 `columns` 更新由你完成。列宽调整支持非受控使用，只传 `columnResizable` 即可拖动；如果需要持久化宽度，可以监听 `onColumnResize` 并同步到你的列配置。
+拖拽后组件会在内部维护新的行列顺序，因此排序回调不是必需的。需要持久化或同步结果时，可以通过回调直接取得排序后的 `rows` 或 `columns`。列宽调整同样支持非受控使用，只传 `columnResizable` 即可拖动。
 
 `columnDraggable` 默认开启，普通列会自动显示表头拖拽入口。行选择和行拖拽是表格级配置：开启 `rowSelection` 后自动生成左侧选择列，开启 `rowDraggable` 后自动生成左侧拖拽手柄列，不需要在 `columns` 里配置 `rowSelection` 或 `rowDragHandle`。
 
@@ -503,14 +503,7 @@ const visibleRows = useMemo(() => {
   rowSelection={{ mode: 'multiple' }}
   columnResizable
   rowDraggable
-  onColumnOrderChange={(sourceIndex, targetIndex) => {
-    setColumns((current) => {
-      const next = current.slice();
-      const [column] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, column);
-      return next;
-    });
-  }}
+  onColumnOrderChange={(nextColumns) => saveColumns(nextColumns)}
   onColumnResize={(columnKey, width) => {
     setColumns((current) =>
       current.map((column) =>
@@ -518,14 +511,7 @@ const visibleRows = useMemo(() => {
       ),
     );
   }}
-  onRowOrderChange={(sourceIndex, targetIndex) => {
-    setRows((current) => {
-      const next = current.slice();
-      const [row] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, row);
-      return next;
-    });
-  }}
+  onRowOrderChange={(nextRows) => saveRows(nextRows)}
 />;
 ```
 

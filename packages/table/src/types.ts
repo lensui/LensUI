@@ -392,13 +392,12 @@ export interface TableProps<Row extends object> {
   columnDraggable?: boolean;
   columnResizable?: boolean;
   onColumnOrderChange?: (
-    sourceIndex: number,
-    targetIndex: number,
-    detail?: { type: 'column' | 'group'; sourceKey: string; targetKey: string; parentKey?: string; placement: 'before' | 'after' },
+    columns: GridColumn<Row>[],
+    detail: { sourceIndex: number; targetIndex: number; type: 'column' | 'group'; sourceKey: string; targetKey: string; parentKey?: string; placement: 'before' | 'after' },
   ) => void;
   onColumnResize?: (columnKey: string, width: number) => void;
   rowDraggable?: boolean;
-  onRowOrderChange?: (sourceIndex: number, targetIndex: number) => void;
+  onRowOrderChange?: (rows: Row[], detail: { sourceIndex: number; targetIndex: number }) => void;
   onInsertRows?: (event: InsertRowsEvent<Row>) => void | Promise<void>;
   onDeleteRows?: (event: DeleteRowsEvent<Row>) => void | Promise<void>;
   sortState?: GridSortState | null;

@@ -454,83 +454,6 @@ function App() {
         });
       return resize(current);
     });
-  const reorderColumns = (
-    sourceIndex: number,
-    targetIndex: number,
-    detail?: {
-      type: "column" | "group";
-      sourceKey: string;
-      targetKey: string;
-      parentKey?: string;
-      placement: "before" | "after";
-    },
-  ) =>
-    setTableColumns((current) => {
-      if (!detail) return current;
-      const insertIndex = (sourceIndex: number, targetIndex: number) => {
-        let nextIndex = targetIndex + (detail.placement === "after" ? 1 : 0);
-        if (sourceIndex < nextIndex) nextIndex -= 1;
-        return nextIndex;
-      };
-      if (detail.type === "group") {
-        const sourceIndex = current.findIndex(
-          (column) => column.key === detail.sourceKey,
-        );
-        const targetIndex = current.findIndex(
-          (column) => column.key === detail.targetKey,
-        );
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
-          return current;
-        const next = current.slice();
-        const [column] = next.splice(sourceIndex, 1);
-        next.splice(insertIndex(sourceIndex, targetIndex), 0, column);
-        return next;
-      }
-      if (!detail.parentKey) {
-        const sourceIndex = current.findIndex(
-          (column) => column.key === detail.sourceKey,
-        );
-        const targetIndex = current.findIndex(
-          (column) => column.key === detail.targetKey,
-        );
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
-          return current;
-        const next = current.slice();
-        const [column] = next.splice(sourceIndex, 1);
-        next.splice(insertIndex(sourceIndex, targetIndex), 0, column);
-        return next;
-      }
-      const reorderInGroup = (
-        items: GridColumn<Person>[],
-      ): GridColumn<Person>[] =>
-        items.map((column) => {
-          if (column.key !== detail.parentKey || !column.children) {
-            return column.children
-              ? { ...column, children: reorderInGroup(column.children) }
-              : column;
-          }
-          const sourceIndex = column.children.findIndex(
-            (child) => child.key === detail.sourceKey,
-          );
-          const targetIndex = column.children.findIndex(
-            (child) => child.key === detail.targetKey,
-          );
-          if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
-            return column;
-          const children = column.children.slice();
-          const [child] = children.splice(sourceIndex, 1);
-          children.splice(insertIndex(sourceIndex, targetIndex), 0, child);
-          return { ...column, children };
-        });
-      return reorderInGroup(current);
-    });
-  const reorderRows = (sourceIndex: number, targetIndex: number) =>
-    setRows((current) => {
-      const next = current.slice();
-      const [row] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, row);
-      return next;
-    });
   const insertRows = async ({
     rowIndex,
     row,
@@ -635,8 +558,8 @@ function App() {
         onSortStateChange={setSortState}
         filterValues={filterValues}
         onFilterValuesChange={setFilterValues}
-        onColumnOrderChange={reorderColumns}
-        onRowOrderChange={reorderRows}
+        onColumnOrderChange={(nextColumns) => console.log("columns reordered", nextColumns)}
+        onRowOrderChange={(nextRows) => console.log("rows reordered", nextRows)}
         onInsertRows={insertRows}
         onDeleteRows={deleteRows}
         onCellChange={handleChange}

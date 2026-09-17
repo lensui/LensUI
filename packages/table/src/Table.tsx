@@ -118,6 +118,47 @@ function flattenDataColumns<Row>(columns: GridColumn<Row>[], inheritedFixed?: 'l
   });
 }
 
+function reconcileColumns<Row>(current: GridColumn<Row>[], incoming: GridColumn<Row>[]): GridColumn<Row>[] {
+  const incomingByKey = new Map(incoming.map((column) => [column.key, column] as const));
+  const ordered: GridColumn<Row>[] = current.flatMap((column) => {
+    const replacement = incomingByKey.get(column.key);
+    if (!replacement) return [];
+    incomingByKey.delete(column.key);
+    return [{
+      ...replacement,
+      children: replacement.children
+        ? reconcileColumns(column.children ?? [], replacement.children)
+        : undefined,
+    }];
+  });
+  incoming.forEach((column) => {
+    if (incomingByKey.has(column.key)) ordered.push(column);
+  });
+  return ordered;
+}
+
+function reorderColumns<Row>(
+  columns: GridColumn<Row>[],
+  detail: { type: 'column' | 'group'; sourceKey: string; targetKey: string; parentKey?: string; placement: 'before' | 'after' },
+): GridColumn<Row>[] {
+  const reorder = (items: GridColumn<Row>[]) => {
+    const sourceIndex = items.findIndex((column) => column.key === detail.sourceKey);
+    const targetIndex = items.findIndex((column) => column.key === detail.targetKey);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return items;
+    const next = items.slice();
+    const [column] = next.splice(sourceIndex, 1);
+    let insertIndex = targetIndex + (detail.placement === 'after' ? 1 : 0);
+    if (sourceIndex < insertIndex) insertIndex -= 1;
+    next.splice(insertIndex, 0, column);
+    return next;
+  };
+  if (!detail.parentKey) return reorder(columns);
+  return columns.map((column) => {
+    if (column.key === detail.parentKey && column.children) return { ...column, children: reorder(column.children) };
+    return column.children ? { ...column, children: reorderColumns(column.children, detail) } : column;
+  });
+}
+
 function buildHeaderCells<Row>(sourceColumns: GridColumn<Row>[], utilityColumnCount: number, depth: number): HeaderCell<Row>[] {
   const cells: HeaderCell<Row>[] = [];
   let leafIndex = utilityColumnCount;
@@ -251,7 +292,7 @@ function resolveContextMenuSection<Row, Builtin extends string, Context>(
 }
 
 export function Table<Row extends object>({
-  columns: sourceColumns,
+  columns: columnProps,
   rows: sourceRows,
   rowKey,
   width = '100%',
@@ -305,6 +346,10 @@ export function Table<Row extends object>({
   style,
   ariaLabel = 'Data grid',
 }: TableProps<Row>) {
+  const [sourceColumns, setSourceColumns] = useState(columnProps);
+  useEffect(() => {
+    setSourceColumns((current) => reconcileColumns(current, columnProps));
+  }, [columnProps]);
   const rowHeight = layout?.rowHeight ?? rowHeightProp ?? 36;
   const baseHeaderHeight = layout?.headerHeight ?? headerHeightProp ?? 40;
   const headerDepth = useMemo(() => Math.max(1, ...sourceColumns.map(getColumnDepth)), [sourceColumns]);
@@ -599,6 +644,7 @@ export function Table<Row extends object>({
   const [pendingDeletedRowKeys, setPendingDeletedRowKeys] = useState<Set<GridKey>>(() => new Set());
   const [pendingInserts, setPendingInserts] = useState<Array<PendingInsert<Row>>>(() => []);
   const [insertedRowKeys, setInsertedRowKeys] = useState<Set<GridKey>>(() => new Set());
+  const [rowOrderKeys, setRowOrderKeys] = useState<GridKey[] | null>(null);
   const settledPendingInsertIdsRef = useRef<Set<string>>(new Set());
 
   const getDataRowKey = useCallback((row: Row, index: number): GridKey => {
@@ -642,9 +688,43 @@ export function Table<Row extends object>({
           insertedOffset += insert.rows.length;
         });
     }
-    if (pendingDeletedRowKeys.size === 0) return next;
-    return next.filter((row, index) => !pendingDeletedRowKeys.has(getDataRowKey(row, index)));
-  }, [getDataRowKey, pendingDeletedRowKeys, pendingInserts, sourceRows]);
+    if (pendingDeletedRowKeys.size > 0) {
+      next = next.filter((row, index) => !pendingDeletedRowKeys.has(getDataRowKey(row, index)));
+    }
+    if (!rowOrderKeys) return next;
+    const rowsByKey = new Map(next.map((row, index) => [getDataRowKey(row, index), row] as const));
+    const ordered = rowOrderKeys.flatMap((key) => {
+      const row = rowsByKey.get(key);
+      if (!row) return [];
+      rowsByKey.delete(key);
+      return [row];
+    });
+    next.forEach((row, index) => {
+      const key = getDataRowKey(row, index);
+      if (rowsByKey.has(key)) ordered.push(row);
+    });
+    return ordered;
+  }, [getDataRowKey, pendingDeletedRowKeys, pendingInserts, rowOrderKeys, sourceRows]);
+
+  const applyRowOrder = useCallback((sourceIndex: number, targetIndex: number) => {
+    if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= rows.length || targetIndex >= rows.length) return;
+    const nextEntries = rows.map((row, index) => ({ row, key: getDataRowKey(row, index) }));
+    const [entry] = nextEntries.splice(sourceIndex, 1);
+    nextEntries.splice(targetIndex, 0, entry);
+    const nextRows = nextEntries.map(({ row }) => row);
+    setRowOrderKeys(nextEntries.map(({ key }) => key));
+    onRowOrderChange?.(nextRows, { sourceIndex, targetIndex });
+  }, [getDataRowKey, onRowOrderChange, rows]);
+
+  const applyColumnOrder = useCallback((
+    sourceIndex: number,
+    targetIndex: number,
+    detail: { type: 'column' | 'group'; sourceKey: string; targetKey: string; parentKey?: string; placement: 'before' | 'after' },
+  ) => {
+    const nextColumns = reorderColumns(sourceColumns, detail);
+    setSourceColumns(nextColumns);
+    onColumnOrderChange?.(nextColumns, { sourceIndex, targetIndex, ...detail });
+  }, [onColumnOrderChange, sourceColumns]);
 
   useEffect(() => {
     if (insertBusy || settledPendingInsertIdsRef.current.size === 0) return;
@@ -1930,7 +2010,7 @@ export function Table<Row extends object>({
           setRowDragPreview(null);
           setRowDragGuide(null);
           canvas.style.cursor = 'default';
-          if (Number.isInteger(rawTargetIndex) && sourceIndex !== targetIndex) onRowOrderChange?.(sourceIndex, targetIndex);
+          if (Number.isInteger(rawTargetIndex) && sourceIndex !== targetIndex) applyRowOrder(sourceIndex, targetIndex);
           requestAnimationFrame(() => {
             requestAnimationFrame(() => scrollerRef.current?.classList.remove('rvg-row-drop-settling'));
           });
@@ -1945,7 +2025,7 @@ export function Table<Row extends object>({
         setDragGuide(null);
         columnDragPreviewRef.current = null;
         if (Number.isInteger(rawTargetIndex) && Number.isInteger(targetIndex) && sourceIndex !== targetIndex && target?.headerKind === source.data.headerKind && target?.parentKey === source.data.parentKey && target?.fixed === source.data.fixed) {
-          onColumnOrderChange?.(
+          applyColumnOrder(
             sourceIndex - utilityColumnCount,
             targetIndex - utilityColumnCount,
             {
@@ -2012,7 +2092,7 @@ export function Table<Row extends object>({
       cleanupDrag();
       cleanupDrop();
     };
-  }, [bodyTop, columnDraggable, columns, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerHeight, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, metrics, onColumnOrderChange, onRowOrderChange, rowDraggable, rowHeight, rows, selectedRowKeySet, setDragGuide, setRowDragGuide, utilityColumnCount]);
+  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerHeight, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, setDragGuide, setRowDragGuide, utilityColumnCount]);
 
   // Convert a viewport pointer coordinate into a grid cell identity. This is
   // the shared hit-test path for hover tooltips, selection, range dragging,
@@ -3836,12 +3916,12 @@ export function Table<Row extends object>({
                 <span>{labels.rowUnit}</span>
               </div>;
               if (item === 'move-up') {
-                if (!rowDraggable || !onRowOrderChange) return null;
-                return renderContextMenuButton('cell-move-up', cellContext, labels.moveUp, () => onRowOrderChange(cell.rowIndex, cell.rowIndex - 1), override, { disabled: cell.rowIndex === 0, icon: <ContextMenuIcon type="move-up" /> });
+                if (!rowDraggable) return null;
+                return renderContextMenuButton('cell-move-up', cellContext, labels.moveUp, () => applyRowOrder(cell.rowIndex, cell.rowIndex - 1), override, { disabled: cell.rowIndex === 0, icon: <ContextMenuIcon type="move-up" /> });
               }
               if (item === 'move-down') {
-                if (!rowDraggable || !onRowOrderChange) return null;
-                return renderContextMenuButton('cell-move-down', cellContext, labels.moveDown, () => onRowOrderChange(cell.rowIndex, cell.rowIndex + 1), override, { disabled: cell.rowIndex === rows.length - 1, icon: <ContextMenuIcon type="move-down" /> });
+                if (!rowDraggable) return null;
+                return renderContextMenuButton('cell-move-down', cellContext, labels.moveDown, () => applyRowOrder(cell.rowIndex, cell.rowIndex + 1), override, { disabled: cell.rowIndex === rows.length - 1, icon: <ContextMenuIcon type="move-down" /> });
               }
               if (item === 'delete-row') return renderContextMenuButton('cell-delete-row', cellContext, labels.deleteRow, () => setConfirmAction({ type: 'delete-row', rows: affectedRows.map((rowIndex) => ({ rowIndex, row: rows[rowIndex] })) }), override, { disabled: !onDeleteRows, danger: true, icon: <ContextMenuIcon type="delete" /> });
               return null;
