@@ -1,6 +1,6 @@
 import type { GridColumn, GridSelection, GridKey, GridSortState, TableResolvedCellSpan, ViewportRange } from '../types';
 import { getDisplayLabel } from './format';
-import { getVisibleHeaderActions, type ColumnMetric } from './layout';
+import { getVisibleHeaderActions, HEADER_ACTION_SLOT_WIDTH, type ColumnMetric } from './layout';
 
 type PaintColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
@@ -48,6 +48,7 @@ interface PaintOptions<Row extends object> {
   cellAnnotations: ReadonlyMap<string, { type: 'background' | 'corner'; color: string; content: string }>;
   getRowKey: (row: Row, index: number) => GridKey;
   rowDragPreview: { sourceIndex: number; targetIndex: number } | null;
+  columnDropTarget: { startIndex: number; endIndex: number } | null;
   colors?: Partial<typeof COLORS>;
 }
 
@@ -65,6 +66,7 @@ const COLORS = {
   rowHoverFill: '#f6f9fc',
   editedFill: '#fff1b8',
   insertedFill: '#c8ead4',
+  columnDropTargetFill: '#eeeeee',
   stripe: '#fafbfc',
 };
 
@@ -94,7 +96,7 @@ function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth
  * datasets cheap to scroll because only the visible viewport is painted.
  */
 export function paintGrid<Row extends object>(options: PaintOptions<Row>): void {
-  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, headerHeight, fixedHeader, verticalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview } = options;
+  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, headerHeight, fixedHeader, verticalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
   const headerLeafTop = options.headerLeafTop ?? 0;
   const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
@@ -153,6 +155,18 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ? width - (rightOffsets.get(index) ?? 0) - metrics[index].width
         : (scrollableLefts.get(index) ?? leftFixedWidth) - scrollLeft;
   };
+  const getRowDragOffset = (rowIndex: number) => {
+    if (!rowDragPreview || rowIndex === rowDragPreview.sourceIndex) return 0;
+    if (rowDragPreview.sourceIndex < rowDragPreview.targetIndex) {
+      return rowIndex > rowDragPreview.sourceIndex && rowIndex <= rowDragPreview.targetIndex ? -rowHeight : 0;
+    }
+    return rowIndex >= rowDragPreview.targetIndex && rowIndex < rowDragPreview.sourceIndex ? rowHeight : 0;
+  };
+  const rowBelowDragGap = rowDragPreview
+    ? rowDragPreview.sourceIndex <= rowDragPreview.targetIndex
+      ? rowDragPreview.targetIndex + 1
+      : rowDragPreview.targetIndex
+    : -1;
 
   const paintBodyColumns = (layer: 'scroll' | 'left' | 'right') => {
   // Body cells are painted in three passes: scrolling columns, left-fixed
@@ -162,11 +176,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   for (let rowIndex = rowStart; rowIndex < range.rowEnd; rowIndex += 1) {
     if (rowDragPreview?.sourceIndex === rowIndex) continue;
     // While dragging a row, shift neighboring rows to preview the final order.
-    const shift = rowDragPreview
-      ? rowDragPreview.sourceIndex < rowDragPreview.targetIndex
-        ? rowIndex > rowDragPreview.sourceIndex && rowIndex <= rowDragPreview.targetIndex ? -rowHeight : 0
-        : rowIndex >= rowDragPreview.targetIndex && rowIndex < rowDragPreview.sourceIndex ? rowHeight : 0
-      : 0;
+    const shift = getRowDragOffset(rowIndex);
     const y = bodyTop + rowIndex * rowHeight - scrollTop + shift;
     const row = rows[rowIndex];
     const rowKey = getRowKey(row, rowIndex);
@@ -203,6 +213,10 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillStyle = colors.rowHoverFill;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
+      if (columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex) {
+        ctx.fillStyle = colors.columnDropTargetFill;
+        ctx.fillRect(x, y, cellWidth, cellHeight);
+      }
       if (highlightInsertedRows && insertedRowKeys.has(rowKey)) {
         ctx.fillStyle = colors.insertedFill;
         ctx.fillRect(x, y, cellWidth, cellHeight);
@@ -233,6 +247,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       ctx.fillStyle = colors.grid;
       if (!verticalBorderless) ctx.fillRect(x + cellWidth - 1, y, 1, cellHeight);
+      if (rowIndex === rowBelowDragGap) ctx.fillRect(x, y, cellWidth, 1);
       if (!options.suppressLastRowBottomBorder || rowIndex !== rows.length - 1) {
         ctx.fillRect(x, y + cellHeight - 1, cellWidth, 1);
       }
@@ -345,6 +360,10 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.fillStyle = colors.selectionFill;
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
+    if (columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex) {
+      ctx.fillStyle = colors.columnDropTargetFill;
+      ctx.fillRect(x, headerY, metric.width, headerHeight);
+    }
     ctx.fillStyle = colors.grid;
     if (!verticalBorderless) ctx.fillRect(x + metric.width - 1, headerY, 1, headerHeight);
     ctx.fillRect(x, headerY + headerHeight - 1, metric.width, 1);
@@ -353,7 +372,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
       const titleWidth = ctx.measureText(column.title).width;
       const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth);
-      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18;
+      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH;
       const contentWidth = Math.max(0, metric.width - actionWidth);
       const padding = 10;
       const clipWidth = contentWidth;
@@ -434,7 +453,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
 
   const selectedRow = selection ? rows[selection.rowIndex] : undefined;
   const hasValidSelection = Boolean(selection && selectedRow && getRowKey(selectedRow, selection.rowIndex) === selection.rowKey);
-  if (selection && hasValidSelection && !selectionRange) {
+  if (selection && hasValidSelection && !selectionRange && !rowDragPreview) {
     // Single-cell selection border has special handling when the selected cell
     // is hidden behind a frozen column or fixed header. Tiny edge markers keep
     // keyboard navigation understandable even when the cell itself is clipped.
@@ -446,7 +465,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const selectionWidth = getCellWidth(selection.columnIndex, span?.colSpan ?? 1);
       const selectionHeight = rowHeight * (span?.rowSpan ?? 1);
       const x = Math.round(getColumnX(selection.columnIndex));
-      const y = Math.round(bodyTop + selection.rowIndex * rowHeight - scrollTop);
+      const y = Math.round(bodyTop + selection.rowIndex * rowHeight - scrollTop + getRowDragOffset(selection.rowIndex));
       const borderWidth = 2;
       const visibleLeft = fixedSide === 'left' ? 0 : leftFixedWidth;
       const selectionAreaRight = fixedSide === 'right' ? width : width - rightFixedWidth;

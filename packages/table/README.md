@@ -105,9 +105,9 @@ export function Example() {
 | `tooltip`                    | `boolean \| { header?: boolean; cell?: boolean }`                                   | `true`          | 文本 tooltip 总配置。传`true` 时表头和单元格 hover 都显示完整文本；传 `false` 可关闭；传对象可分别控制表头和单元格。                |
 | `summary`                    | `boolean \| { position?: 'top' \| 'bottom'; verticalBordered?: boolean; emptyValue?: ReactNode }` | `false`         | 表格级合计行配置。默认不显示；传 `true` 或对象即开启合计行，对象可控制显示在表头下方或底部、是否显示内部竖线，以及无合计值单元格的填充内容。     |
 | `rowNumber`                  | `boolean`                                                                          | `true`          | 是否显示序号列。默认开启并自动生成左侧序号列，不需要在`columns` 中配置；传 `false` 可关闭。                                         |
-| `selectedCell`               | `GridSelection \| null`                                                             | 非受控            | 受控单元格选中状态。                                                                                                                    |
-| `defaultSelectedCell`        | `GridSelection \| null`                                                             | `null`          | 非受控模式下的默认选中单元格。                                                                                                          |
-| `onSelectedCellChange`       | `(selection) => void`                                                              | -                 | 单元格选中变化回调。                                                                                                                    |
+| `selectedCell`               | `GridSelectionTarget \| null`                                                       | 非受控            | 受控单元格选中状态。传 `columnKey`，行可使用 `rowKey` 或 `rowIndex` 定位。                                                              |
+| `defaultSelectedCell`        | `GridSelectionTarget \| null`                                                       | `null`            | 默认选中单元格。传 `columnKey`，行可使用 `rowKey` 或 `rowIndex` 定位。                                                                  |
+| `onSelectedCellChange`       | `(selection) => void`                                                              | -                 | 单元格选中变化回调，`selection.value` 为当前单元格的原始值。                                                                            |
 | `rangeSelection`             | `boolean`                                                                          | `false`         | 是否允许鼠标拖动选择多个单元格。开启后支持范围复制、范围右键菜单和右下角拖拽扩展范围。                                                  |
 | `rowSelection`               | `boolean \| AxisSelectionConfig`                                                    | `false`         | 开启行选择。可传`{ mode: 'single' \| 'multiple' }`；开启后组件自动生成左侧选择列，不需要在 `columns` 中配置。                        |
 | `selectedRowKeys`            | `GridKey[]`                                                                        | 非受控            | 受控行选择 key 列表。                                                                                                                   |
@@ -118,17 +118,15 @@ export function Example() {
 | `defaultSelectedColumnKeys`  | `string[]`                                                                         | `[]`            | 非受控模式下默认选中的列 key。                                                                                                          |
 | `onSelectedColumnKeysChange` | `(keys) => void`                                                                   | -                 | 列选择变化回调。                                                                                                                        |
 | `columnDraggable`            | `boolean`                                                                          | `true`          | 是否允许拖拽调整列顺序。默认开启，普通列默认显示表头拖拽入口，传`false` 可关闭。                                                      |
-| `columnResizable`            | `boolean`                                                                          | `false`         | 是否允许拖拽调整列宽。                                                                                                                  |
-| `onColumnOrderChange`        | `(columns, detail) => void`                                                        | -                 | 列拖拽排序完成回调，返回排序后的列和索引详情。                                                                                         |
-| `onColumnResize`             | `(columnKey, width) => void`                                                       | -                 | 列宽变化回调。未传时组件会在内部维护列宽；传入后可用于持久化或受控同步。                                                                |
+| `onColumnsReorder`           | `(columns, detail) => void`                                                        | -                 | 列拖拽重排完成回调，返回重排后的完整列配置和索引详情。                                                                                  |
 | `rowDraggable`               | `boolean`                                                                          | `false`         | 是否允许拖拽调整行顺序。开启后组件自动生成左侧拖拽手柄列，不需要在`columns` 中配置。                                                  |
-| `onRowOrderChange`           | `(rows, detail) => void`                                                           | -                 | 行拖拽排序完成回调，返回排序后的行和索引详情。                                                                                         |
-| `onInsertRows`               | `(event) => void`                                                                  | -                 | 右键菜单插入行回调。                                                                                                                    |
-| `onDeleteRows`               | `(event) => void`                                                                  | -                 | 右键菜单删除行回调。                                                                                                                    |
-| `sortState`                  | `GridSortState \| null`                                                             | 非受控            | 受控排序状态。组件只管理 UI 状态，数据排序由外部完成。                                                                                  |
-| `onSortStateChange`          | `(state) => void`                                                                  | -                 | 点击表头排序时触发。                                                                                                                    |
-| `filterValues`               | `Record<string, string>`                                                           | 非受控            | 受控筛选值。组件只管理输入值，数据过滤由外部完成。                                                                                      |
-| `onFilterValuesChange`       | `(values) => void`                                                                 | -                 | 表头筛选值变化回调。                                                                                                                    |
+| `onRowsReorder`              | `(rows, detail) => void`                                                           | -                 | 行拖拽重排完成回调，返回重排后的完整行数据和索引详情。                                                                                  |
+| `columnResizable`            | `boolean`                                                                          | `true`          | 是否允许拖拽调整列宽。默认开启，传 `false` 可关闭。                                                                                     |
+| `onColumnResize`             | `(columnKey, width) => void`                                                       | -                 | 列宽变化回调。未传时组件会在内部维护列宽；传入后可用于持久化或受控同步。                                                                |
+| `onInsertRows`               | `(rows, insertedRows) => void`                                                     | -                 | 插入完成后返回新的完整行数组和本次插入的行。                                                                                            |
+| `onDeleteRows`               | `(rows, deletedRows) => void`                                                      | -                 | 删除完成后返回新的完整行数组和本次删除的行。                                                                                            |
+| `onSortChange`               | `(rows, state) => Row[]`                                                           | -                 | 自定义排序方法。排序状态由组件内部管理；返回排序后的行。                                                                                |
+| `onFilterChange`             | `(rows, values) => Row[]`                                                          | -                 | 自定义筛选方法。筛选值由组件内部管理；返回符合条件的行。                                                                                |
 | `onCellChange`               | `(change) => void`                                                                 | -                 | 单元格编辑提交回调。                                                                                                                    |
 | `onCellContextMenu`          | `(event) => void`                                                                  | -                 | 单元格右键回调，可用于扩展自定义菜单逻辑。                                                                                              |
 | `contextMenu`                | `boolean \| { header?, cell?, range? }`                                             | `true`          | `true` 开启默认右键菜单，`false` 关闭右键菜单，传对象可自定义菜单项、顺序和分割线。                                                 |
@@ -136,6 +134,17 @@ export function Example() {
 | `className`                  | `string`                                                                           | -                 | 根节点 className。                                                                                                                      |
 | `style`                      | `CSSProperties`                                                                    | -                 | 根节点内联样式，可用于传入主题 CSS 变量。                                                                                               |
 | `ariaLabel`                  | `string`                                                                           | `Table` | 表格区域无障碍名称。                                                                                                                    |
+
+插入和删除的位置计算、空行生成、乐观显示及目标行过滤均由组件处理，外部只需更新最终数组：
+
+```tsx
+<Table
+  rows={rows}
+  columns={columns}
+  onInsertRows={setRows}
+  onDeleteRows={setRows}
+/>
+```
 
 ## 高亮和范围选择
 
@@ -199,8 +208,8 @@ export function Example() {
 | `align`      | `'left' \| 'center' \| 'right'`                                            | `'left'`           | 单元格文本和拖拽预览文本对齐方式。                                                          |
 | `editable`   | `boolean`                                                                | `false`            | 是否允许双击或按 Enter 进入编辑。                                                           |
 | `editor`     | `EditorConfig`                                                           | `{ type: 'text' }` | 内置编辑器配置。详见下方编辑器表。未配置时默认使用文本编辑器。                              |
-| `sortable`   | `boolean`                                                                | `true`             | 表头显示排序按钮，并触发`onSortStateChange`。普通数据列默认开启，传 `false` 可关闭。    |
-| `filterable` | `boolean`                                                                | `true`             | 表头显示筛选按钮，并触发`onFilterValuesChange`。普通数据列默认开启，传 `false` 可关闭。 |
+| `sortable`   | `boolean`                                                                | `true`             | 表头显示排序按钮。普通数据列默认开启，传 `false` 可关闭。                 |
+| `filterable` | `boolean`                                                                | `true`             | 表头显示筛选按钮。普通数据列默认开启，传 `false` 可关闭。                 |
 | `formatter`  | `(value, row, rowIndex) => string`                                       | -                    | 自定义展示文本。异常会被隔离并显示渲染错误文案。                                            |
 | `renderCell` | `(value, row, rowIndex) => ReactNode`                                    | -                    | 自定义单元格 React 内容。适合标签、徽标、图标组合等内置编辑器无法表达的展示。               |
 | `summary`    | `boolean \| ((rows, column) => ReactNode)`                                | `false`            | 是否在合计行显示该列合计。传`true` 自动累加数字值；传函数可自定义合计内容。               |
@@ -457,42 +466,33 @@ const columns: GridColumn<Row>[] = [
 
 ## 排序和筛选
 
-组件只负责展示排序/筛选交互，不会直接改变 `rows`。业务侧需要根据回调结果自行排序、过滤。
+排序和筛选状态均由组件内部管理。默认排序会比较数值或单元格显示文本；默认筛选按照显示文本执行不区分大小写的包含匹配。需要其他规则时，分别通过 `onSortChange` 和 `onFilterChange` 返回处理后的行。
 
 ```tsx
-const [sortState, setSortState] = useState<GridSortState | null>(null);
-const [filterValues, setFilterValues] = useState<Record<string, string>>({});
-
-const visibleRows = useMemo(() => {
-  const filtered = rows.filter((row) =>
-    Object.entries(filterValues).every(([key, value]) =>
-      String(row[key as keyof Row] ?? '').includes(value),
-    ),
-  );
-
-  if (!sortState) return filtered;
-
-  return filtered.slice().sort((a, b) => {
-    const left = a[sortState.columnKey as keyof Row];
-    const right = b[sortState.columnKey as keyof Row];
-    const result = String(left).localeCompare(String(right));
-    return sortState.direction === 'asc' ? result : -result;
-  });
-}, [rows, sortState, filterValues]);
-
 <Table
   columns={columns}
-  rows={visibleRows}
-  sortState={sortState}
-  filterValues={filterValues}
-  onSortStateChange={setSortState}
-  onFilterValuesChange={setFilterValues}
+  rows={rows}
+  onSortChange={(currentRows, state) => {
+    const direction = state.direction === 'asc' ? 1 : -1;
+    return currentRows.slice().sort((left, right) =>
+      String(left[state.columnKey as keyof Row]).localeCompare(
+        String(right[state.columnKey as keyof Row]),
+      ) * direction,
+    );
+  }}
+  onFilterChange={(currentRows, values) =>
+    currentRows.filter((row) =>
+      Object.entries(values).every(([key, value]) =>
+        String(row[key as keyof Row] ?? '').startsWith(value),
+      ),
+    )
+  }
 />;
 ```
 
 ## 拖拽和列宽
 
-拖拽后组件会在内部维护新的行列顺序，因此排序回调不是必需的。需要持久化或同步结果时，可以通过回调直接取得排序后的 `rows` 或 `columns`。列宽调整同样支持非受控使用，只传 `columnResizable` 即可拖动。
+拖拽后组件会在内部维护新的行列顺序，因此排序回调不是必需的。需要持久化或同步结果时，可以通过回调直接取得排序后的 `rows` 或 `columns`。列宽调整默认开启并支持非受控使用，传 `columnResizable={false}` 可关闭。
 
 `columnDraggable` 默认开启，普通列会自动显示表头拖拽入口。行选择和行拖拽是表格级配置：开启 `rowSelection` 后自动生成左侧选择列，开启 `rowDraggable` 后自动生成左侧拖拽手柄列，不需要在 `columns` 里配置 `rowSelection` 或 `rowDragHandle`。
 
@@ -501,9 +501,9 @@ const visibleRows = useMemo(() => {
   columns={columns}
   rows={rows}
   rowSelection={{ mode: 'multiple' }}
-  columnResizable
   rowDraggable
-  onColumnOrderChange={(nextColumns) => saveColumns(nextColumns)}
+  onColumnsReorder={(nextColumns) => saveColumns(nextColumns)}
+  onRowsReorder={(nextRows) => saveRows(nextRows)}
   onColumnResize={(columnKey, width) => {
     setColumns((current) =>
       current.map((column) =>
@@ -511,7 +511,6 @@ const visibleRows = useMemo(() => {
       ),
     );
   }}
-  onRowOrderChange={(nextRows) => saveRows(nextRows)}
 />;
 ```
 

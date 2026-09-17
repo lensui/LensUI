@@ -232,6 +232,16 @@ export interface GridSelection extends GridCellPosition {
   columnKey: string;
 }
 
+/** Cell locator accepted by controlled and default selection props. */
+export type GridSelectionTarget =
+  | { columnKey: string; rowKey: GridKey; rowIndex?: number; columnIndex?: number }
+  | { columnKey: string; rowIndex: number; rowKey?: GridKey; columnIndex?: number };
+
+/** Fully resolved selected cell returned by onSelectedCellChange. */
+export interface SelectedCellChange extends GridSelection {
+  value: unknown;
+}
+
 /** Fired after a cell editor commits a value. */
 export interface CellChange<Row> extends GridSelection {
   value: unknown;
@@ -314,23 +324,6 @@ export interface TableContextMenuConfig<Row> {
 
 export type TableContextMenu<Row> = boolean | TableContextMenuConfig<Row>;
 
-/** Payload for inserting one or more rows around a target row. */
-export interface InsertRowsEvent<Row> {
-  rowIndex: number;
-  row: Row;
-  position: 'before' | 'after';
-  count: number;
-  /** Rows created by the grid for the optimistic visible insert. Consumers can persist these directly. */
-  insertedRows?: Row[];
-}
-
-/** Payload for deleting the selected rows. */
-export interface DeleteRowsEvent<Row> {
-  rows: Array<{ rowIndex: number; row: Row }>;
-  /** Current rendered viewport, including virtual overscan. Useful for fast optimistic updates before rebuilding large datasets. */
-  viewportRange?: ViewportRange;
-}
-
 /**
  * Public props for Table.
  *
@@ -376,9 +369,9 @@ export interface TableProps<Row extends object> {
   summary?: TableSummaryConfig;
   /** Show an automatically generated row number column on the left. */
   rowNumber?: boolean;
-  selectedCell?: GridSelection | null;
-  defaultSelectedCell?: GridSelection | null;
-  onSelectedCellChange?: (selection: GridSelection | null) => void;
+  selectedCell?: GridSelectionTarget | null;
+  defaultSelectedCell?: GridSelectionTarget | null;
+  onSelectedCellChange?: (selection: SelectedCellChange | null) => void;
   /** Enable spreadsheet-style mouse drag selection across multiple body cells. Defaults to false. */
   rangeSelection?: boolean;
   rowSelection?: boolean | AxisSelectionConfig;
@@ -391,19 +384,21 @@ export interface TableProps<Row extends object> {
   onSelectedColumnKeysChange?: (keys: string[]) => void;
   columnDraggable?: boolean;
   columnResizable?: boolean;
-  onColumnOrderChange?: (
+  onColumnsReorder?: (
     columns: GridColumn<Row>[],
     detail: { sourceIndex: number; targetIndex: number; type: 'column' | 'group'; sourceKey: string; targetKey: string; parentKey?: string; placement: 'before' | 'after' },
   ) => void;
   onColumnResize?: (columnKey: string, width: number) => void;
   rowDraggable?: boolean;
-  onRowOrderChange?: (rows: Row[], detail: { sourceIndex: number; targetIndex: number }) => void;
-  onInsertRows?: (event: InsertRowsEvent<Row>) => void | Promise<void>;
-  onDeleteRows?: (event: DeleteRowsEvent<Row>) => void | Promise<void>;
-  sortState?: GridSortState | null;
-  onSortStateChange?: (state: GridSortState | null) => void;
-  filterValues?: Record<string, string>;
-  onFilterValuesChange?: (values: Record<string, string>) => void;
+  onRowsReorder?: (rows: Row[], detail: { sourceIndex: number; targetIndex: number }) => void;
+  /** Receives the complete rows array and the rows added by the built-in insert operation. */
+  onInsertRows?: (rows: Row[], insertedRows: Row[]) => void | Promise<void>;
+  /** Receives the complete rows array and the rows removed by the built-in delete operation. */
+  onDeleteRows?: (rows: Row[], deletedRows: Row[]) => void | Promise<void>;
+  /** Overrides the built-in value sorting. Return rows ordered for the internally managed sort state. */
+  onSortChange?: (rows: Row[], state: GridSortState) => Row[];
+  /** Overrides the built-in text filtering. Return the rows that match the internally managed filter values. */
+  onFilterChange?: (rows: Row[], values: Readonly<Record<string, string>>) => Row[];
   onCellChange?: (change: CellChange<Row>) => void | Promise<void>;
   onCellContextMenu?: (event: ContextMenuEvent<Row>) => void;
   /** true uses the built-in menu, false disables custom menus, object customizes menu content and order. */

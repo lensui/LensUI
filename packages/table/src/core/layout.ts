@@ -28,6 +28,8 @@ export interface ColumnMetric {
   right: number;
 }
 
+export const HEADER_ACTION_SLOT_WIDTH = 16;
+
 export interface BuildColumnMetricsOptions {
   columnDraggable?: boolean;
   viewportWidth?: number;
@@ -76,7 +78,7 @@ export function getHeaderTitleRequiredWidth<Row>(column: LayoutColumn<Row>, titl
  * candidate list so the clickable positions remain stable while resizing.
  */
 export function getVisibleHeaderActions<Row>(column: LayoutColumn<Row>, width: number, columnDraggable = false, titleWidth = 26) {
-  const capacity = Math.max(0, Math.floor((width - getHeaderTitleRequiredWidth(column, titleWidth)) / 18));
+  const capacity = Math.max(0, Math.floor((width - getHeaderTitleRequiredWidth(column, titleWidth)) / HEADER_ACTION_SLOT_WIDTH));
   const candidates = [
     isColumnFilterable(column) ? 'filter' as const : null,
     isColumnSortable(column) ? 'sort' as const : null,

@@ -2,7 +2,6 @@ import React, {
   Component,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ErrorInfo,
   type ReactNode,
@@ -11,11 +10,8 @@ import { createRoot } from "react-dom/client";
 import {
   Table,
   type CellChange,
-  type DeleteRowsEvent,
   type TableCellSpan,
   type GridColumn,
-  type GridSortState,
-  type InsertRowsEvent,
 } from "../../src";
 import "../../src/style.css";
 import "./page.css";
@@ -43,68 +39,12 @@ interface Person {
   hours: number | "";
 }
 
-const createInsertedRowId = () =>
-  `inserted-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-
 const waitForNextPaint = () =>
   new Promise<void>((resolve) => {
     window.requestAnimationFrame(() =>
       window.requestAnimationFrame(() => resolve()),
     );
   });
-
-const filterRowsInChunks = async (
-  source: Person[],
-  deletedIds: Set<Person["id"]>,
-) => {
-  const chunkSize = 5000;
-  const next: Person[] = [];
-  for (let start = 0; start < source.length; start += chunkSize) {
-    const end = Math.min(source.length, start + chunkSize);
-    for (let index = start; index < end; index += 1) {
-      const row = source[index];
-      if (!deletedIds.has(row.id)) next.push(row);
-    }
-    await waitForNextPaint();
-  }
-  return next;
-};
-
-const scheduleAfterPaint = (callback: () => void | Promise<void>) =>
-  new Promise<void>((resolve, reject) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const requestIdleCallback = window.requestIdleCallback;
-        const run = () => {
-          Promise.resolve(callback()).then(resolve, reject);
-        };
-        if (requestIdleCallback) requestIdleCallback(run, { timeout: 120 });
-        else window.setTimeout(run, 0);
-      });
-    });
-  });
-
-const insertRowsInChunks = async (
-  source: Person[],
-  index: number,
-  additions: Person[],
-) => {
-  const chunkSize = 5000;
-  const next: Person[] = [];
-  for (let start = 0; start < index; start += chunkSize) {
-    next.push(...source.slice(start, Math.min(index, start + chunkSize)));
-    await waitForNextPaint();
-  }
-  next.push(...additions);
-  await waitForNextPaint();
-  for (let start = index; start < source.length; start += chunkSize) {
-    next.push(
-      ...source.slice(start, Math.min(source.length, start + chunkSize)),
-    );
-    await waitForNextPaint();
-  }
-  return next;
-};
 
 class DemoErrorBoundary extends Component<
   { children: ReactNode },
@@ -360,54 +300,17 @@ function App() {
     [],
   );
   const [rows, setRows] = useState(initialRows);
-  const rowsRef = useRef(rows);
   const [tableColumns, setTableColumns] = useState(columns);
-  const [sortState, setSortState] = useState<GridSortState | null>(null);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     const timer = window.setTimeout(() => setLoading(false), 900);
     return () => window.clearTimeout(timer);
   }, []);
-  useEffect(() => {
-    rowsRef.current = rows;
-  }, [rows]);
   const refresh = () => {
     setLoading(true);
     window.setTimeout(() => setLoading(false), 900);
   };
-  const activeFilters = useMemo(
-    () =>
-      Object.entries(filterValues).filter(([, query]) => query.trim() !== ""),
-    [filterValues],
-  );
-  const computedVisibleRows = useMemo(() => {
-    if (activeFilters.length === 0 && !sortState) return rows;
-    const filtered =
-      activeFilters.length === 0
-        ? rows
-        : rows.filter((row) =>
-            activeFilters.every(([key, query]) =>
-              String(row[key as keyof Person] ?? "")
-                .toLowerCase()
-                .includes(query.toLowerCase()),
-            ),
-          );
-    if (!sortState) return filtered;
-    return filtered.slice().sort((a, b) => {
-      const left = a[sortState.columnKey as keyof Person];
-      const right = b[sortState.columnKey as keyof Person];
-      const result =
-        typeof left === "number" && typeof right === "number"
-          ? left - right
-          : String(left).localeCompare(String(right));
-      return sortState.direction === "asc" ? result : -result;
-    });
-  }, [activeFilters, rows, sortState]);
-  const [visibleRowsOverride, setVisibleRowsOverride] = useState<
-    Person[] | null
-  >(null);
-  const visibleRows = visibleRowsOverride ?? computedVisibleRows;
+  const visibleRows = rows;
   const cellSpans = useMemo<TableCellSpan[]>(
     () =>
       [
@@ -426,14 +329,12 @@ function App() {
       ].filter((span) => span.rowKey !== undefined),
     [visibleRows],
   );
-  useEffect(() => {
-    setVisibleRowsOverride(null);
-  }, [computedVisibleRows]);
   const handleChange = async ({
     row,
     columnKey,
     value,
   }: CellChange<Person>) => {
+    console.log("Cell changed:", { row, columnKey, value });
     setRows((current) => {
       const next = current.slice();
       const rowIndex = next.findIndex((item) => item.id === row.id);
@@ -442,88 +343,6 @@ function App() {
       return next;
     });
     await waitForNextPaint();
-  };
-  const resizeColumn = (columnKey: string, width: number) =>
-    setTableColumns((current) => {
-      const resize = (items: GridColumn<Person>[]): GridColumn<Person>[] =>
-        items.map((column) => {
-          if (column.key === columnKey) return { ...column, width };
-          if (column.children)
-            return { ...column, children: resize(column.children) };
-          return column;
-        });
-      return resize(current);
-    });
-  const insertRows = async ({
-    rowIndex,
-    row,
-    position,
-    count,
-    insertedRows,
-  }: InsertRowsEvent<Person>) => {
-    const current = rowsRef.current;
-    const matchedIndex = current.findIndex((item) => item.id === row.id);
-    const anchor = matchedIndex >= 0 ? matchedIndex : rowIndex;
-    if (anchor < 0) return;
-    const additions: Person[] =
-      insertedRows ??
-      Array.from({ length: count }, () => ({
-        id: createInsertedRowId(),
-        name: "",
-        department: "",
-        city: "",
-        role: "",
-        status: "",
-        email: "",
-        phone: "",
-        joinedAt: "",
-        workTime: "",
-        appointmentAt: "",
-        year: "",
-        month: "",
-        dateRange: "",
-        timeRange: "",
-        dateTimeRange: "",
-        score: "",
-        amount: "",
-        projects: "",
-        hours: "",
-      }));
-    const insertIndex = anchor + (position === "after" ? 1 : 0);
-    const next = await insertRowsInChunks(current, insertIndex, additions);
-    setRows(next);
-  };
-  const deleteRows = async ({
-    rows: targets,
-    viewportRange,
-  }: DeleteRowsEvent<Person>) => {
-    const ids = new Set(targets.map(({ row }) => row.id));
-    if (viewportRange) {
-      const { rowStart, rowEnd } = viewportRange;
-      setVisibleRowsOverride((current) => {
-        const source = current ?? computedVisibleRows;
-        const next = source.slice();
-        const visibleWindow = next
-          .slice(rowStart, rowEnd)
-          .filter((row) => !ids.has(row.id));
-        let cursor = rowEnd;
-        while (
-          visibleWindow.length < rowEnd - rowStart &&
-          cursor < source.length
-        ) {
-          const row = source[cursor];
-          if (!ids.has(row.id)) visibleWindow.push(row);
-          cursor += 1;
-        }
-        next.splice(rowStart, rowEnd - rowStart, ...visibleWindow);
-        return next;
-      });
-    }
-    await scheduleAfterPaint(async () => {
-      const next = await filterRowsInChunks(rowsRef.current, ids);
-      setRows(next);
-      setVisibleRowsOverride(null);
-    });
   };
   return (
     <main>
@@ -549,19 +368,21 @@ function App() {
       <Table
         columns={tableColumns}
         rows={visibleRows}
+        defaultSelectedCell={{ rowIndex: 0, columnKey: "name" }}
         height={620}
-        fixedHeader={true}
         loading={loading}
-        columnDraggable
-        columnResizable
-        sortState={sortState}
-        onSortStateChange={setSortState}
-        filterValues={filterValues}
-        onFilterValuesChange={setFilterValues}
-        onColumnOrderChange={(nextColumns) => console.log("columns reordered", nextColumns)}
-        onRowOrderChange={(nextRows) => console.log("rows reordered", nextRows)}
-        onInsertRows={insertRows}
-        onDeleteRows={deleteRows}
+        rowDraggable
+        onInsertRows={(nextRows, insertedRows) => {
+          console.log("Rows inserted:", { rows: nextRows, insertedRows });
+          setRows(nextRows);
+        }}
+        onDeleteRows={(nextRows, deletedRows) => {
+          console.log("Rows deleted:", { rows: nextRows, deletedRows });
+          setRows(nextRows);
+        }}
+        onSelectedCellChange={(cell) => {
+          console.log("Selected cell changed:", cell);
+        }}
         onCellChange={handleChange}
         summary
       />

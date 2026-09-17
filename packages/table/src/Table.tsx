@@ -7,16 +7,16 @@ import { CompactTimeEditor } from './components/editors/TimeEditors';
 import { TextEditor } from './components/editors/TextEditor';
 import { timeFormatHasSeconds } from './core/dateTime';
 import { resolveGridLocale } from './core/i18n';
-import { createRowDragHandleSvg } from './icons/domIcons';
+import { createHeaderDragHandleSvg, createHeaderSearchSvg, createHeaderSortSvg, createRowDragHandleSvg } from './icons/domIcons';
 import { ContextMenuIcon, HeaderDragIcon, HeaderSearchIcon, HeaderSortIcon, LoadingSpinnerIcon, RowDragHandleIcon, SelectionIcon, SubmenuArrowIcon } from './icons/gridIcons';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview';
 import { attachClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
 import { getDisplayLabel } from './core/format';
-import { buildColumnMetrics, getHeaderTitleRequiredWidth, getMinimumColumnWidth, getViewportRange, getVisibleHeaderActions, hitTestColumn } from './core/layout';
+import { buildColumnMetrics, getHeaderTitleRequiredWidth, getMinimumColumnWidth, getViewportRange, getVisibleHeaderActions, HEADER_ACTION_SLOT_WIDTH, hitTestColumn } from './core/layout';
 import { paintGrid } from './core/render';
 import { useControllableKeys, useControllableValue } from './hooks/useControllable';
-import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableResolvedCellSpan, ViewportRange } from './types';
+import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, GridSelectionTarget, GridSortState, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableResolvedCellSpan, ViewportRange } from './types';
 
 interface ScrollPosition { left: number; top: number }
 interface SelectionEdgeIndicator {
@@ -49,6 +49,17 @@ interface PendingInsert<Row> {
   index: number;
   rows: Row[];
   keys: GridKey[];
+}
+
+interface ColumnDropState {
+  sourceIndex: number;
+  targetIndex: number;
+  rawTargetIndex: number;
+  targetKey: string;
+  headerKind: 'column' | 'group';
+  parentKey?: string;
+  fixed?: 'left' | 'right';
+  columnEdge: 'left' | 'right';
 }
 
 type InternalGridColumn<Row> = GridColumn<Row> & {
@@ -327,17 +338,15 @@ export function Table<Row extends object>({
   defaultSelectedColumnKeys,
   onSelectedColumnKeysChange,
   columnDraggable = true,
-  columnResizable = false,
-  onColumnOrderChange,
+  columnResizable = true,
+  onColumnsReorder,
   onColumnResize,
   rowDraggable = false,
-  onRowOrderChange,
+  onRowsReorder,
   onInsertRows,
   onDeleteRows,
-  sortState = null,
-  onSortStateChange,
-  filterValues = {},
-  onFilterValuesChange,
+  onSortChange,
+  onFilterChange,
   onCellChange,
   onCellContextMenu,
   contextMenu: contextMenuConfig = true,
@@ -442,7 +451,6 @@ export function Table<Row extends object>({
   const frameRef = useRef<number | null>(null);
   const textFrameRef = useRef<number | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sortDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cellTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingHeaderTooltipKeyRef = useRef('');
@@ -491,6 +499,7 @@ export function Table<Row extends object>({
   const suppressClickRef = useRef(false);
   const hasCompletedLoadRef = useRef(!loading);
   const columnDragPreviewRef = useRef<{ sourceIndex: number; targetIndex: number } | null>(null);
+  const validColumnDropRef = useRef<ColumnDropState | null>(null);
   const hoveredHeaderActionRef = useRef<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
   const hoveredRowIndexRef = useRef<number | null>(null);
 
@@ -502,12 +511,6 @@ export function Table<Row extends object>({
   const resolvedHeight = typeof height === 'number' ? height : viewport.height || FALLBACK_HEIGHT;
   const [scrollPosition, setScrollPosition] = useState<ScrollPosition>({ left: 0, top: 0 });
   const scrollRef = useRef<ScrollPosition>({ left: 0, top: 0 });
-
-  // Selection can be either controlled by the consumer or owned internally.
-  // selectionRange represents spreadsheet-style multi-cell drag selection.
-  const [selection, setSelection] = useControllableValue(selectedCell, defaultSelectedCell, onSelectedCellChange);
-  const [selectionRange, setSelectionRange] = useState<{ anchor: GridSelection; focus: GridSelection } | null>(null);
-  const rangeDragRef = useRef<{ anchor: GridSelection; moved: boolean } | null>(null);
 
   // Axis selections are tracked by stable keys rather than indices so sorting,
   // filtering, and row insertion do not silently select a different record.
@@ -538,6 +541,7 @@ export function Table<Row extends object>({
   const [editing, setEditing] = useState<GridSelection | null>(null);
   const [draft, setDraft] = useState('');
   const [rowDragPreview, setRowDragPreview] = useState<{ sourceIndex: number; targetIndex: number } | null>(null);
+  const [columnDropTarget, setColumnDropTarget] = useState<{ startIndex: number; endIndex: number } | null>(null);
 
   useEffect(() => {
     if (!loading) hasCompletedLoadRef.current = true;
@@ -613,6 +617,8 @@ export function Table<Row extends object>({
   }, [activeCustomHeaderLevels, measureCustomHeaderHeight, viewport.width]);
 
   const [filterEditor, setFilterEditor] = useState<{ columnIndex: number; left: number; top: number; draft: string } | null>(null);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [sortState, setSortState] = useState<GridSortState | null>(null);
   const [contextMenu, setContextMenu] = useState<
     | { type: 'header'; columnIndex: number; left: number; top: number }
     | ({ type: 'cell'; left: number; top: number } & GridSelection)
@@ -629,7 +635,21 @@ export function Table<Row extends object>({
   const [hoveredHeaderAction, setHoveredHeaderAction] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
   const [visibleHeaderTooltip, setVisibleHeaderTooltip] = useState<HeaderTooltipState | null>(null);
   const [hoveredCellTooltip, setHoveredCellTooltip] = useState<{ rowIndex: number; columnIndex: number; left: number; top: number; label: string; color?: string; annotation?: boolean; placement?: 'left' | 'right' } | null>(null);
-  const [displaySortState, setDisplaySortState] = useState(sortState);
+
+  const hideDragTooltips = useCallback(() => {
+    if (headerTooltipTimerRef.current !== null) {
+      clearTimeout(headerTooltipTimerRef.current);
+      headerTooltipTimerRef.current = null;
+    }
+    if (cellTooltipTimerRef.current !== null) {
+      clearTimeout(cellTooltipTimerRef.current);
+      cellTooltipTimerRef.current = null;
+    }
+    pendingHeaderTooltipKeyRef.current = '';
+    pendingCellTooltipKeyRef.current = '';
+    setVisibleHeaderTooltip(null);
+    setHoveredCellTooltip(null);
+  }, []);
 
   // These local maps power optimistic visual feedback for edits and annotations.
   // They are intentionally visual-only; persistence still belongs to callbacks.
@@ -666,7 +686,7 @@ export function Table<Row extends object>({
     return sourceRows.findIndex((sourceRow, index) => getDataRowKey(sourceRow, index) === key);
   }, [getDataRowKey, sourceRows]);
 
-  const rows = useMemo(() => {
+  const orderedRows = useMemo(() => {
     let next = sourceRows;
     if (pendingInserts.length > 0) {
       const activeInserts = pendingInserts.filter((insert) => {
@@ -706,6 +726,69 @@ export function Table<Row extends object>({
     return ordered;
   }, [getDataRowKey, pendingDeletedRowKeys, pendingInserts, rowOrderKeys, sourceRows]);
 
+  const activeFilterValues = useMemo(() => Object.fromEntries(
+    Object.entries(filterValues).filter(([, value]) => value.trim() !== ''),
+  ), [filterValues]);
+  const filteredRows = useMemo(() => {
+    if (Object.keys(activeFilterValues).length === 0) return orderedRows;
+    if (onFilterChange) return onFilterChange(orderedRows, activeFilterValues);
+    return orderedRows.filter((row, rowIndex) => Object.entries(activeFilterValues).every(([columnKey, query]) => {
+      const column = columns.find((candidate) => candidate.key === columnKey);
+      if (!column) return true;
+      return getDisplayLabel(column, row, rowIndex).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+    }));
+  }, [activeFilterValues, columns, onFilterChange, orderedRows]);
+  const rows = useMemo(() => {
+    if (!sortState) return filteredRows;
+    if (onSortChange) return onSortChange(filteredRows, sortState);
+    const column = columns.find((candidate) => candidate.key === sortState.columnKey);
+    if (!column) return filteredRows;
+    const direction = sortState.direction === 'asc' ? 1 : -1;
+    return filteredRows.slice().sort((left, right) => {
+      const leftValue = column.dataIndex === undefined ? undefined : left[column.dataIndex];
+      const rightValue = column.dataIndex === undefined ? undefined : right[column.dataIndex];
+      const result = typeof leftValue === 'number' && typeof rightValue === 'number'
+        ? leftValue - rightValue
+        : getDisplayLabel(column, left, 0).localeCompare(getDisplayLabel(column, right, 0), language);
+      return result * direction;
+    });
+  }, [columns, filteredRows, language, onSortChange, sortState]);
+
+  const resolveSelectionTarget = useCallback((target: GridSelectionTarget | null | undefined): GridSelection | null | undefined => {
+    if (target == null) return target;
+    const columnIndex = columns.findIndex((column) => column.key === target.columnKey);
+    const rowIndex = target.rowKey !== undefined
+      ? rows.findIndex((row, index) => getDataRowKey(row, index) === target.rowKey)
+      : target.rowIndex ?? -1;
+    const row = rows[rowIndex];
+    if (columnIndex < 0 || !row) return null;
+    return {
+      rowIndex,
+      columnIndex,
+      rowKey: getDataRowKey(row, rowIndex),
+      columnKey: target.columnKey,
+    };
+  }, [columns, getDataRowKey, rows]);
+  const resolvedSelectedCell = useMemo(() => resolveSelectionTarget(selectedCell), [resolveSelectionTarget, selectedCell]);
+  const resolvedDefaultSelectedCell = useMemo(() => resolveSelectionTarget(defaultSelectedCell), [defaultSelectedCell, resolveSelectionTarget]);
+  const handleSelectedCellChange = useCallback((next: GridSelection | null) => {
+    if (!onSelectedCellChange) return;
+    if (!next) {
+      onSelectedCellChange(null);
+      return;
+    }
+    const row = rows[next.rowIndex];
+    const column = columns[next.columnIndex];
+    const value = row && column?.dataIndex !== undefined ? row[column.dataIndex] : undefined;
+    onSelectedCellChange({ ...next, value });
+  }, [columns, onSelectedCellChange, rows]);
+
+  // Selection inputs only need stable row/column identifiers. Internally the
+  // grid keeps a fully resolved position for painting and keyboard navigation.
+  const [selection, setSelection] = useControllableValue<GridSelection>(resolvedSelectedCell, resolvedDefaultSelectedCell, handleSelectedCellChange);
+  const [selectionRange, setSelectionRange] = useState<{ anchor: GridSelection; focus: GridSelection } | null>(null);
+  const rangeDragRef = useRef<{ anchor: GridSelection; moved: boolean } | null>(null);
+
   const applyRowOrder = useCallback((sourceIndex: number, targetIndex: number) => {
     if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= rows.length || targetIndex >= rows.length) return;
     const nextEntries = rows.map((row, index) => ({ row, key: getDataRowKey(row, index) }));
@@ -713,8 +796,8 @@ export function Table<Row extends object>({
     nextEntries.splice(targetIndex, 0, entry);
     const nextRows = nextEntries.map(({ row }) => row);
     setRowOrderKeys(nextEntries.map(({ key }) => key));
-    onRowOrderChange?.(nextRows, { sourceIndex, targetIndex });
-  }, [getDataRowKey, onRowOrderChange, rows]);
+    onRowsReorder?.(nextRows, { sourceIndex, targetIndex });
+  }, [getDataRowKey, onRowsReorder, rows]);
 
   const applyColumnOrder = useCallback((
     sourceIndex: number,
@@ -723,8 +806,8 @@ export function Table<Row extends object>({
   ) => {
     const nextColumns = reorderColumns(sourceColumns, detail);
     setSourceColumns(nextColumns);
-    onColumnOrderChange?.(nextColumns, { sourceIndex, targetIndex, ...detail });
-  }, [onColumnOrderChange, sourceColumns]);
+    onColumnsReorder?.(nextColumns, { sourceIndex, targetIndex, ...detail });
+  }, [onColumnsReorder, sourceColumns]);
 
   useEffect(() => {
     if (insertBusy || settledPendingInsertIdsRef.current.size === 0) return;
@@ -1028,6 +1111,7 @@ export function Table<Row extends object>({
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
       editedFill: editedCellHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-edited-fill', '#fff1b8'),
       insertedFill: insertedRowHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-inserted-fill', '#c8ead4'),
+      columnDropTargetFill: readThemeColor(themeStyles, '--rvg-color-column-drop-target-fill', '#eeeeee'),
       stripe: stripedColor ?? readThemeColor(themeStyles, '--rvg-color-stripe', '#fafbfc'),
     };
     const scroll = scrollRef.current;
@@ -1035,8 +1119,8 @@ export function Table<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, colors: themeColors });
-  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
+  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -1240,12 +1324,7 @@ export function Table<Row extends object>({
     };
   }, [scheduleDraw]);
 
-  useEffect(() => {
-    setDisplaySortState(sortState);
-  }, [sortState]);
-
   useEffect(() => () => {
-    if (sortDebounceRef.current !== null) clearTimeout(sortDebounceRef.current);
     if (textFrameRef.current !== null) cancelAnimationFrame(textFrameRef.current);
     if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current);
     if (verticalScrollbarVisibilityTimerRef.current !== null) clearTimeout(verticalScrollbarVisibilityTimerRef.current);
@@ -1649,12 +1728,12 @@ export function Table<Row extends object>({
     const localX = clientX - canvasRef.current.getBoundingClientRect().left;
     const columnRight = getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-    let right = columnRight - (visibleActions.drag ? 18 : 4);
+    let right = columnRight - (visibleActions.drag ? HEADER_ACTION_SLOT_WIDTH : 2);
     if (visibleActions.sort) {
-      if (localX >= right - 18 && localX < right) return 'sort';
-      right -= 18;
+      if (localX >= right - HEADER_ACTION_SLOT_WIDTH && localX < right) return 'sort';
+      right -= HEADER_ACTION_SLOT_WIDTH;
     }
-    if (visibleActions.filter && localX >= right - 18 && localX < right) return 'filter';
+    if (visibleActions.filter && localX >= right - HEADER_ACTION_SLOT_WIDTH && localX < right) return 'filter';
     return null;
   }, [columnDraggable, columns, getDisplayedColumnLeft, measureHeaderTitleWidth, metrics]);
 
@@ -1665,7 +1744,7 @@ export function Table<Row extends object>({
     const metric = metrics[columnIndex];
     const titleWidth = measureHeaderTitleWidth(columnIndex);
     const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth);
-    const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18;
+    const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH;
     return getHeaderTitleRequiredWidth(column, titleWidth) > Math.max(0, metric.width - actionWidth);
   }, [columnDraggable, columns, measureHeaderTitleWidth, metrics]);
 
@@ -1858,6 +1937,7 @@ export function Table<Row extends object>({
         }
         const sourceIndex = headerDragCell.startIndex;
         columnDragPreviewRef.current = { sourceIndex, targetIndex: sourceIndex };
+        validColumnDropRef.current = null;
         return {
           type: 'table-column',
           sourceIndex,
@@ -1868,15 +1948,30 @@ export function Table<Row extends object>({
           fixed: columns[headerDragCell.startIndex]?.fixed,
         };
       },
-      onGenerateDragPreview: ({ nativeSetDragImage, source }) => {
+      onGenerateDragPreview: ({ nativeSetDragImage, source, location }) => {
         const sourceIndex = Number(source.data.sourceIndex);
+        const canvasRect = canvas.getBoundingClientRect();
+        const input = location.current.input;
+        const previewOffset = source.data.type === 'table-row'
+          ? {
+              x: Math.max(0, Math.min(canvasRect.width, input.clientX - canvasRect.left)) + 2,
+              y: Math.max(0, Math.min(rowHeight, input.clientY - canvasRect.top - bodyTop - sourceIndex * rowHeight + scrollRef.current.top)) + 2,
+            }
+          : {
+              x: Math.max(0, Math.min(metrics[sourceIndex].width, input.clientX - canvasRect.left - getDisplayedColumnLeft(sourceIndex))),
+              y: Math.max(0, Math.min(canvasRect.height, input.clientY - canvasRect.top)),
+            };
         setCustomNativeDragPreview({
           nativeSetDragImage,
+          getOffset: () => previewOffset,
           render: ({ container }) => {
-            const canvasRect = canvas.getBoundingClientRect();
             if (source.data.type === 'table-row') {
               // Row previews show the full visible row width, including fixed
               // columns, so the dragged item resembles the row the user grabbed.
+              const frame = document.createElement('div');
+              frame.className = 'rvg-row-drag-preview-frame';
+              frame.style.width = `${canvasRect.width + 4}px`;
+              frame.style.height = `${rowHeight + 4}px`;
               const preview = document.createElement('div');
               preview.className = 'rvg-row-drag-preview';
               preview.style.width = `${canvasRect.width}px`;
@@ -1902,10 +1997,14 @@ export function Table<Row extends object>({
                 } else {
                   cell.textContent = getCellLabel(sourceIndex, columnIndex);
                 }
+                if (selection?.rowKey === rowKey && selection.columnKey === column.key) {
+                  cell.classList.add('is-selected');
+                }
                 preview.appendChild(cell);
               });
-              container.appendChild(preview);
-              return () => preview.remove();
+              frame.appendChild(preview);
+              container.appendChild(frame);
+              return () => frame.remove();
             }
             const preview = document.createElement('div');
             // Column previews show the dragged column from header through the
@@ -1921,6 +2020,29 @@ export function Table<Row extends object>({
             header.style.height = `${headerHeight}px`;
             header.style.justifyContent = column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start';
             header.textContent = column.title;
+            const visibleActions = getVisibleHeaderActions(column, columnWidth, columnDraggable, measureHeaderTitleWidth(sourceIndex));
+            let actionRight = 2;
+            if (visibleActions.drag) {
+              const icon = createHeaderDragHandleSvg();
+              icon.classList.add('rvg-preview-header-icon');
+              icon.style.right = `${actionRight}px`;
+              header.appendChild(icon);
+              actionRight += HEADER_ACTION_SLOT_WIDTH;
+            }
+            if (visibleActions.sort) {
+              const direction = sortState?.columnKey === column.key ? sortState.direction : null;
+              const icon = createHeaderSortSvg(direction);
+              icon.classList.add('rvg-preview-header-icon');
+              icon.style.right = `${actionRight}px`;
+              header.appendChild(icon);
+              actionRight += HEADER_ACTION_SLOT_WIDTH;
+            }
+            if (visibleActions.filter) {
+              const icon = createHeaderSearchSvg(Boolean(filterValues[column.key]));
+              icon.classList.add('rvg-preview-header-icon', 'rvg-preview-header-search-icon');
+              icon.style.right = `${actionRight}px`;
+              header.appendChild(icon);
+            }
             preview.appendChild(header);
             for (let rowIndex = domRange.rowStart; rowIndex < domRange.rowEnd; rowIndex += 1) {
               const row = rows[rowIndex];
@@ -1949,6 +2071,8 @@ export function Table<Row extends object>({
       },
       onDragStart: ({ source }) => {
         suppressClickRef.current = true;
+        hideDragTooltips();
+        document.documentElement.classList.add('rvg-is-dragging');
         canvas.style.cursor = 'move';
         if (source.data.type === 'table-row') {
           const sourceIndex = Number(source.data.sourceIndex);
@@ -1980,15 +2104,55 @@ export function Table<Row extends object>({
         // within the left-fixed region, and the same rule applies to right-fixed
         // and normal scrolling columns.
         if (!Number.isInteger(targetIndex) || target?.headerKind !== source.data.headerKind || target?.parentKey !== source.data.parentKey || target?.fixed !== source.data.fixed) {
+          validColumnDropRef.current = null;
+          setColumnDropTarget(null);
           setDragGuide(null);
           return;
         }
         const edge = target?.columnEdge;
         const destinationIndex = getColumnDropIndex(sourceIndex, targetIndex, edge);
         columnDragPreviewRef.current = { sourceIndex, targetIndex: destinationIndex };
+        if (destinationIndex === sourceIndex) {
+          validColumnDropRef.current = null;
+          setColumnDropTarget(null);
+          setDragGuide(null);
+          return;
+        }
+        validColumnDropRef.current = {
+          sourceIndex,
+          targetIndex: destinationIndex,
+          rawTargetIndex: targetIndex,
+          targetKey: String(target.targetKey),
+          headerKind: source.data.headerKind === 'group' ? 'group' : 'column',
+          parentKey: typeof source.data.parentKey === 'string' ? source.data.parentKey : undefined,
+          fixed: source.data.fixed === 'left' || source.data.fixed === 'right' ? source.data.fixed : undefined,
+          columnEdge: edge === 'right' ? 'right' : 'left',
+        };
+        const siblingCells = headerCells.filter((cell) => (
+          cell.level === Number(source.data.headerLevel)
+          && (cell.leaf ? 'column' : 'group') === source.data.headerKind
+          && cell.parentKey === source.data.parentKey
+          && columns[cell.startIndex]?.fixed === source.data.fixed
+        ));
+        const targetEndIndex = Number.isInteger(target?.targetEndIndex) ? Number(target.targetEndIndex) : targetIndex;
+        const hoveredTargetCell = siblingCells.find((cell) => cell.startIndex === targetIndex && cell.endIndex === targetEndIndex);
+        if (!hoveredTargetCell) {
+          validColumnDropRef.current = null;
+          setColumnDropTarget(null);
+          setDragGuide(null);
+          return;
+        }
+        const highlightedCell = edge === 'right'
+          ? hoveredTargetCell
+          : siblingCells
+              .filter((cell) => cell.endIndex < hoveredTargetCell.startIndex)
+              .sort((left, right) => right.endIndex - left.endIndex)[0] ?? hoveredTargetCell;
+        setColumnDropTarget({ startIndex: highlightedCell.startIndex, endIndex: highlightedCell.endIndex });
         const targetLeft = Number(target?.targetLeft);
         const targetWidth = Number(target?.targetWidth);
         if (!Number.isFinite(targetLeft) || !Number.isFinite(targetWidth)) {
+          validColumnDropRef.current = null;
+          setColumnDropTarget(null);
           setDragGuide(null);
           return;
         }
@@ -1996,6 +2160,7 @@ export function Table<Row extends object>({
         setDragGuide(edge === 'right' ? targetLeft + targetWidth : targetLeft, guideTop);
       },
       onDrop: ({ source, location }) => {
+        document.documentElement.classList.remove('rvg-is-dragging');
         const target = location.current.dropTargets[0]?.data;
         const sourceIndex = Number(source.data.sourceIndex);
         if (source.data.type === 'table-row') {
@@ -2017,23 +2182,22 @@ export function Table<Row extends object>({
           window.setTimeout(() => { suppressClickRef.current = false; }, 0);
           return;
         }
-        const rawTargetIndex = Number(target?.targetIndex);
-        const targetIndex = columnDragPreviewRef.current?.targetIndex ?? (
-          Number.isInteger(rawTargetIndex) ? getColumnDropIndex(sourceIndex, rawTargetIndex, target?.columnEdge) : rawTargetIndex
-        );
+        const validDrop = validColumnDropRef.current;
         canvas.style.cursor = 'default';
         setDragGuide(null);
+        setColumnDropTarget(null);
         columnDragPreviewRef.current = null;
-        if (Number.isInteger(rawTargetIndex) && Number.isInteger(targetIndex) && sourceIndex !== targetIndex && target?.headerKind === source.data.headerKind && target?.parentKey === source.data.parentKey && target?.fixed === source.data.fixed) {
+        validColumnDropRef.current = null;
+        if (validDrop) {
           applyColumnOrder(
-            sourceIndex - utilityColumnCount,
-            targetIndex - utilityColumnCount,
+            validDrop.sourceIndex - utilityColumnCount,
+            validDrop.targetIndex - utilityColumnCount,
             {
-              type: source.data.headerKind === 'group' ? 'group' : 'column',
+              type: validDrop.headerKind,
               sourceKey: String(source.data.sourceKey),
-              targetKey: String(target.targetKey),
-              parentKey: typeof source.data.parentKey === 'string' ? source.data.parentKey : undefined,
-              placement: getColumnDropPlacement(sourceIndex, rawTargetIndex, target.columnEdge),
+              targetKey: validDrop.targetKey,
+              parentKey: validDrop.parentKey,
+              placement: getColumnDropPlacement(validDrop.sourceIndex, validDrop.rawTargetIndex, validDrop.columnEdge),
             },
           );
         }
@@ -2043,6 +2207,7 @@ export function Table<Row extends object>({
     const cleanupDrop = dropTargetForElements({
       element: canvas,
       canDrop: ({ source }) => source.data.type === 'table-column' || source.data.type === 'table-row',
+      getDropEffect: () => 'move',
       getData: ({ input, element, source }) => {
         if (source.data.type === 'table-row') {
           // Row drop hitboxes use vertical edges so dragging between two rows
@@ -2053,7 +2218,14 @@ export function Table<Row extends object>({
           const rowEdge = input.clientY - canvas.getBoundingClientRect().top < rowTop + rowHeight / 2 ? 'top' : 'bottom';
           return attachClosestEdge({ targetIndex, rowEdge }, { element, input, allowedEdges: ['top', 'bottom'] });
         }
-        const targetCell = locateHeaderCell(input.clientX, input.clientY);
+        const hoveredColumnIndex = locateColumn(input.clientX);
+        const targetCell = locateHeaderCell(input.clientX, input.clientY) ?? headerCells.find((cell) => (
+          hoveredColumnIndex >= cell.startIndex
+          && hoveredColumnIndex <= cell.endIndex
+          && cell.level === Number(source.data.headerLevel)
+          && (cell.leaf ? 'column' : 'group') === source.data.headerKind
+          && cell.parentKey === source.data.parentKey
+        ));
         if (!targetCell) return { targetIndex: -1 };
         let targetIndex = targetCell.startIndex;
         const targetFixed = columns[targetCell.startIndex]?.fixed;
@@ -2078,6 +2250,7 @@ export function Table<Row extends object>({
         const columnEdge = input.clientX - canvas.getBoundingClientRect().left < left + targetWidth / 2 ? 'left' : 'right';
         return attachClosestEdge({
           targetIndex,
+          targetEndIndex: targetCell.endIndex,
           targetKey: targetCell.key,
           parentKey: targetCell.parentKey,
           headerKind,
@@ -2089,10 +2262,11 @@ export function Table<Row extends object>({
       },
     });
     return () => {
+      document.documentElement.classList.remove('rvg-is-dragging');
       cleanupDrag();
       cleanupDrop();
     };
-  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerHeight, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, setDragGuide, setRowDragGuide, utilityColumnCount]);
+  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, filterValues, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerCells, headerHeight, hideDragTooltips, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, measureHeaderTitleWidth, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, selection, setDragGuide, setRowDragGuide, sortState, utilityColumnCount]);
 
   // Convert a viewport pointer coordinate into a grid cell identity. This is
   // the shared hit-test path for hover tooltips, selection, range dragging,
@@ -2563,21 +2737,16 @@ export function Table<Row extends object>({
     setResizeGuideTop(0);
   }, []);
 
-  const queueSortStateChange = useCallback((next: typeof displaySortState) => {
-    setDisplaySortState(next);
-    if (sortDebounceRef.current !== null) clearTimeout(sortDebounceRef.current);
-    sortDebounceRef.current = setTimeout(() => {
-      sortDebounceRef.current = null;
-      onSortStateChange?.(next);
-    }, 200);
-  }, [onSortStateChange]);
+  const queueSortStateChange = useCallback((next: GridSortState | null) => {
+    setSortState(next);
+  }, []);
 
   const renderHeaderIcons = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
     const top = headerLeafTop + (headerLeafHeight - 14) / 2;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-    let right = left + metrics[columnIndex].width - (visibleActions.drag ? 18 : 4);
+    let right = left + metrics[columnIndex].width - (visibleActions.drag ? HEADER_ACTION_SLOT_WIDTH : 2);
     const icons = [];
     if (visibleActions.drag) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'drag';
@@ -2587,11 +2756,11 @@ export function Table<Row extends object>({
     }
     if (visibleActions.sort) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'sort';
-      const direction = displaySortState?.columnKey === column.key ? displaySortState.direction : null;
+      const direction = sortState?.columnKey === column.key ? sortState.direction : null;
       icons.push(
         <HeaderSortIcon key="sort" className={`rvg-header-icon${hovered ? ' is-hovered' : ''}`} style={{ left: right - 16, top }} direction={direction} />,
       );
-      right -= 18;
+      right -= HEADER_ACTION_SLOT_WIDTH;
     }
     if (visibleActions.filter) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'filter';
@@ -2622,8 +2791,8 @@ export function Table<Row extends object>({
         ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth)
         : null;
       const actionWidth = visibleActions
-        ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18
-        : columnDraggable ? 18 : 0;
+        ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH
+        : columnDraggable ? HEADER_ACTION_SLOT_WIDTH : 0;
       const contentWidth = Math.max(0, cellWidth - actionWidth);
       const maxTextWidth = Math.max(0, contentWidth - 20);
       const textWidth = Math.min(titleWidth, maxTextWidth);
@@ -2642,7 +2811,7 @@ export function Table<Row extends object>({
       anchorLeft = anchorX;
       label = labels.dragColumn;
     } else if (action === 'sort') {
-      const direction = displaySortState?.columnKey === column.key ? displaySortState.direction : null;
+      const direction = sortState?.columnKey === column.key ? sortState.direction : null;
       label = direction === 'asc' ? labels.sortAsc : direction === 'desc' ? labels.sortDesc : labels.sortBoth;
       anchorX = cellLeft + cellWidth - 22;
       anchorLeft = anchorX;
@@ -2662,7 +2831,7 @@ export function Table<Row extends object>({
       label,
       placement,
     };
-  }, [baseHeaderHeight, columnDraggable, columns, displaySortState, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerDepth, headerRowHeights, headerRowOffsets, labels, metrics, scrollPosition.top, viewport.width]);
+  }, [baseHeaderHeight, columnDraggable, columns, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerDepth, headerRowHeights, headerRowOffsets, labels, metrics, scrollPosition.top, sortState, viewport.width]);
 
   const isPointerOnHeaderTitle = useCallback((clientX: number, clientY: number, cell: HeaderCell<Row>) => {
     const canvas = canvasRef.current;
@@ -2681,8 +2850,8 @@ export function Table<Row extends object>({
       ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth)
       : null;
     const actionWidth = visibleActions
-      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18
-      : columnDraggable ? 18 : 0;
+      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH
+      : columnDraggable ? HEADER_ACTION_SLOT_WIDTH : 0;
     const contentWidth = Math.max(0, cellWidth - actionWidth);
     const textWidth = Math.min(titleWidth, Math.max(0, contentWidth - 20));
     const textLeft = column.align === 'right'
@@ -2943,7 +3112,9 @@ export function Table<Row extends object>({
     });
     setPendingInserts((current) => [...current, pending]);
     try {
-      await Promise.resolve(onInsertRows({ rowIndex: sourceRowIndex >= 0 ? sourceRowIndex : cell.rowIndex, row, position, count, insertedRows }));
+      const nextRows = sourceRows.slice();
+      nextRows.splice(insertIndex, 0, ...insertedRows);
+      await Promise.resolve(onInsertRows(nextRows, insertedRows));
       await waitForPaint();
       setInsertBusy(false);
     } catch (error) {
@@ -3020,6 +3191,7 @@ export function Table<Row extends object>({
 
   const renderHeaderTitle = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
+    const isDropTarget = Boolean(columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex);
     const currentScrollTop = scrollRef.current.top;
     const headerTop = fixedHeader ? 0 : -currentScrollTop;
     const leafTop = headerTop + headerLeafTop;
@@ -3027,7 +3199,7 @@ export function Table<Row extends object>({
       return (
         <div
           key={column.key}
-          className="rvg-header-title"
+          className={`rvg-header-title${isDropTarget ? ' is-drop-target' : ''}`}
           style={{ left, top: headerTop, width: metrics[columnIndex].width, height: headerHeight, justifyContent: 'center', padding: 0, textAlign: 'center' }}
         >
           <span>{column.title}</span>
@@ -3050,11 +3222,11 @@ export function Table<Row extends object>({
     }
     if (column.renderHeader) {
       const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18;
+      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH;
       return (
         <div
           key={column.key}
-          className="rvg-header-title is-custom"
+          className={`rvg-header-title is-custom${isDropTarget ? ' is-drop-target' : ''}`}
           data-level={headerDepth - 1}
           data-measure-key={column.key}
           style={{
@@ -3103,12 +3275,15 @@ export function Table<Row extends object>({
       ? getVisibleHeaderActions(column, startMetric.width, columnDraggable, measureHeaderTitleWidth(cell.startIndex))
       : null;
     const actionWidth = visibleActions
-      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * 18
-      : columnDraggable && !cell.leaf ? 18 : 0;
+      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH
+      : columnDraggable && !cell.leaf ? HEADER_ACTION_SLOT_WIDTH : 0;
+    const isDropTarget = Boolean(columnDropTarget
+      && cell.endIndex >= columnDropTarget.startIndex
+      && cell.startIndex <= columnDropTarget.endIndex);
     return (
       <div
         key={`group:${cell.key}:${cell.level}`}
-        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}`}
+        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
         data-level={cell.level}
         data-measure-key={`group:${cell.key}:${cell.level}`}
         style={{
@@ -3166,6 +3341,7 @@ export function Table<Row extends object>({
 
   const selectionOutlineStyle = (() => {
     if (!selection || selectionRange) return null;
+    if (rowDragPreview?.sourceIndex === selection.rowIndex) return null;
     const row = rows[selection.rowIndex];
     const metric = metrics[selection.columnIndex];
     const column = columns[selection.columnIndex];
@@ -3175,14 +3351,15 @@ export function Table<Row extends object>({
     const rawRight = rawLeft + getCellDisplayWidth(selection.columnIndex, span?.colSpan ?? 1);
     const rawTop = bodyTop + selection.rowIndex * rowHeight - scrollPosition.top;
     const rawBottom = rawTop + rowHeight * (span?.rowSpan ?? 1);
+    const dragOffset = getRowDragOffset(selection.rowIndex);
     const horizontalStart = column.fixed === undefined ? fixedWidth : 0;
     const horizontalEnd = column.fixed === undefined ? viewport.width - rightFixedWidth : viewport.width;
     const verticalStart = fixedHeader ? bodyTop : 0;
     if (
       rawRight <= horizontalStart
       || rawLeft >= horizontalEnd
-      || rawBottom <= verticalStart
-      || rawTop >= renderHeight
+      || rawBottom + dragOffset <= verticalStart
+      || rawTop + dragOffset >= renderHeight
     ) return null;
     const borderWidth = 2;
     const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart));
@@ -3194,6 +3371,7 @@ export function Table<Row extends object>({
       top,
       width: Math.max(0, right - left),
       height: Math.max(0, bottom - top),
+      transform: `translateY(${dragOffset}px)`,
     } as CSSProperties;
   })();
 
@@ -3394,6 +3572,10 @@ export function Table<Row extends object>({
           className="rvg-canvas"
           style={{ width: viewport.width, height: renderHeight }}
           onMouseMove={(event) => {
+            if (document.documentElement.classList.contains('rvg-is-dragging')) {
+              hideDragTooltips();
+              return;
+            }
             if (columnDragRef.current) return;
             const rect = event.currentTarget.getBoundingClientRect();
             const localY = event.clientY - rect.top;
@@ -3535,10 +3717,24 @@ export function Table<Row extends object>({
               scheduleDraw();
             }
           }}
-          onPointerDown={(event) => { handleColumnPointerDown(event); beginRangeDrag(event); }}
+          onPointerDown={(event) => {
+            const headerDragCell = columnDraggable ? locateHeaderCell(event.clientX, event.clientY) : null;
+            const columnIndex = locateColumn(event.clientX);
+            const rowDragHandle = rowDraggable
+              && columnIndex >= 0
+              && Boolean(columns[columnIndex].rowDragHandle)
+              && locateRow(event.clientY) >= 0;
+            if ((headerDragCell && locateHeaderCellDragHandle(event.clientX, headerDragCell)) || rowDragHandle) {
+              hideDragTooltips();
+              document.documentElement.classList.add('rvg-is-dragging');
+              event.currentTarget.style.cursor = 'move';
+            }
+            handleColumnPointerDown(event);
+            beginRangeDrag(event);
+          }}
           onPointerMove={(event) => { handleColumnPointerMove(event); updateRangeDrag(event); }}
-          onPointerUp={(event) => { handleColumnPointerUp(event); endRangeDrag(event); }}
-          onPointerCancel={(event) => { handleColumnPointerUp(event); endRangeDrag(event); }}
+          onPointerUp={(event) => { document.documentElement.classList.remove('rvg-is-dragging'); handleColumnPointerUp(event); endRangeDrag(event); }}
+          onPointerCancel={(event) => { document.documentElement.classList.remove('rvg-is-dragging'); handleColumnPointerUp(event); endRangeDrag(event); }}
           onClick={(event) => {
             if (suppressClickRef.current) {
               suppressClickRef.current = false;
@@ -3554,9 +3750,9 @@ export function Table<Row extends object>({
               const action = locateHeaderAction(event.clientX, columnIndex);
               if (action === 'sort') {
                 const columnKey = columns[columnIndex].key;
-                const next = displaySortState?.columnKey !== columnKey
+                const next = sortState?.columnKey !== columnKey
                   ? { columnKey, direction: 'asc' as const }
-                  : displaySortState.direction === 'asc'
+                  : sortState.direction === 'asc'
                     ? { columnKey, direction: 'desc' as const }
                     : null;
                 queueSortStateChange(next);
@@ -3967,21 +4163,30 @@ export function Table<Row extends object>({
                       await Promise.resolve(onCellChange?.({ ...confirmAction.cell, row: confirmAction.row, previousValue: confirmAction.previousValue, value: '' }));
                     } else {
                       const deletingKeys = confirmAction.rows.map(({ row, rowIndex }) => getDataRowKey(row, rowIndex));
+                      const deletedRows = confirmAction.rows.map(({ row }) => row);
+                      const deletingKeySet = new Set(deletingKeys);
+                      const nextRows = sourceRows.filter((row, rowIndex) => !deletingKeySet.has(getDataRowKey(row, rowIndex)));
                       setConfirmAction(null);
                       setConfirmLoading(false);
+                      setPendingDeletedRowKeys((current) => {
+                        const next = new Set(current);
+                        deletingKeys.forEach((key) => next.add(key));
+                        return next;
+                      });
                       if (onDeleteRows) {
                         setDeleteBusy(true);
                         try {
-                          await Promise.resolve(onDeleteRows({ rows: confirmAction.rows, viewportRange: domRange }));
+                          await Promise.resolve(onDeleteRows(nextRows, deletedRows));
+                        } catch (error) {
+                          setPendingDeletedRowKeys((current) => {
+                            const next = new Set(current);
+                            deletingKeys.forEach((key) => next.delete(key));
+                            return next;
+                          });
+                          throw error;
                         } finally {
                           setDeleteBusy(false);
                         }
-                      } else {
-                        setPendingDeletedRowKeys((current) => {
-                          const next = new Set(current);
-                          deletingKeys.forEach((key) => next.add(key));
-                          return next;
-                        });
                       }
                       return;
                     }
@@ -4053,7 +4258,7 @@ export function Table<Row extends object>({
                 const next = { ...filterValues };
                 if (filterEditor.draft) next[key] = filterEditor.draft;
                 else delete next[key];
-                onFilterValuesChange?.(next);
+                setFilterValues(next);
                 setFilterEditor(null);
               }
             }}
@@ -4063,7 +4268,7 @@ export function Table<Row extends object>({
               const key = columns[filterEditor.columnIndex].key;
               const next = { ...filterValues };
               delete next[key];
-              onFilterValuesChange?.(next);
+              setFilterValues(next);
               setFilterEditor(null);
             }}>{labels.reset}</button>
             <button type="button" className="rvg-filter-confirm" onClick={() => {
@@ -4071,7 +4276,7 @@ export function Table<Row extends object>({
               const next = { ...filterValues };
               if (filterEditor.draft) next[key] = filterEditor.draft;
               else delete next[key];
-              onFilterValuesChange?.(next);
+              setFilterValues(next);
               setFilterEditor(null);
             }}>{labels.confirm}</button>
           </div>
