@@ -70,15 +70,11 @@
 .rvg-header-title { position: absolute; display: flex; align-items: center; min-width: 0; padding: 0 10px; overflow: hidden; color: var(--rvg-color-text); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; user-select: text; pointer-events: auto; cursor: text; }
 .rvg-header-title { pointer-events: none; cursor: default; }
 .rvg-cell-text { transition: transform 140ms ease, opacity 100ms ease; }
-.rvg-row-drop-settling .rvg-cell-text,
-.rvg-row-drop-settling .rvg-row-drag-icon,
-.rvg-row-drop-settling .rvg-row-selection-icon { transition: none; }
+.rvg-row-drop-settling .rvg-cell-text { transition: none; }
 .rvg-cell-text > span,
 .rvg-header-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .rvg-header-title.is-custom { overflow: visible; white-space: normal; }
 .rvg-header-title.is-custom > span { overflow: visible; white-space: normal; text-overflow: clip; }
-.rvg-row-drag-icon { position: absolute; display: grid; place-items: center; pointer-events: none; transition: transform 140ms ease, opacity 100ms ease; }
-.rvg-row-drag-icon svg { display: block; width: 16px; height: 16px; overflow: visible; fill: var(--rvg-color-icon); }
 .rvg-cell-render { position: absolute; z-index: 1; display: flex; min-width: 0; padding: 0 10px; align-items: center; overflow: hidden; color: var(--rvg-color-text); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; pointer-events: none; box-sizing: border-box; transition: transform 140ms ease, opacity 100ms ease; }
 .rvg-cell-render > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rvg-summary-row { position: absolute; z-index: 4; right: 0; left: 0; overflow: hidden; background: #fbfcfd; pointer-events: none; box-sizing: border-box; }
@@ -103,9 +99,7 @@
 .rvg-tag.is-success { background: #e6f4ea; color: #188038; }
 .rvg-tag.is-warning { background: #fef7e0; color: #b06000; }
 .rvg-tag.is-danger { background: #fce8e6; color: #d93025; }
-.rvg-row-selection-icon,
 .rvg-header-selection-icon { position: absolute; display: grid; place-items: center; pointer-events: none; }
-.rvg-row-selection-icon { transition: transform 140ms ease, opacity 100ms ease; }
 .rvg-selection-svg { display: block; width: 16px; height: 16px; overflow: visible; }
 .rvg-selection-outline { fill: var(--rvg-color-bg); stroke: var(--rvg-color-border-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .rvg-selection-svg.is-active .rvg-selection-outline { fill: var(--rvg-color-primary); stroke: var(--rvg-color-primary); }

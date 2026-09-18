@@ -377,11 +377,11 @@ export interface TableProps<Row extends object> {
   rowSelection?: boolean | AxisSelectionConfig;
   selectedRowKeys?: GridKey[];
   defaultSelectedRowKeys?: GridKey[];
-  onSelectedRowKeysChange?: (keys: GridKey[], rows: Row[], indices: number[]) => void;
+  onSelectedRowChange?: (keys: GridKey[], rows: Row[], indices: number[]) => void;
   columnSelection?: boolean | AxisSelectionConfig;
   selectedColumnKeys?: string[];
   defaultSelectedColumnKeys?: string[];
-  onSelectedColumnKeysChange?: (keys: string[]) => void;
+  onSelectedColumnChange?: (keys: string[]) => void;
   columnDraggable?: boolean;
   columnResizable?: boolean;
   onColumnsReorder?: (

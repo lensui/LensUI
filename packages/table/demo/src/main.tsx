@@ -368,10 +368,10 @@ function App() {
       <Table
         columns={tableColumns}
         rows={visibleRows}
-        defaultSelectedCell={{ rowIndex: 0, columnKey: "name" }}
         height={620}
         loading={loading}
         rowDraggable
+        rowSelection
         onInsertRows={(nextRows, insertedRows) => {
           console.log("Rows inserted:", { rows: nextRows, insertedRows });
           setRows(nextRows);
@@ -384,6 +384,7 @@ function App() {
           console.log("Selected cell changed:", cell);
         }}
         onCellChange={handleChange}
+        onSelectedRowChange={(keys, selectedRows, indices) => console.log("Selected row changed:", { keys, rows: selectedRows, indices })}
         summary
       />
     </main>

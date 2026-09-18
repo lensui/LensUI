@@ -44,8 +44,8 @@
 
 建议命名：
 
-1. `selectedRowKeys` / `onSelectedRowKeysChange`
-2. `selectedColumnKeys` / `onSelectedColumnKeysChange`
+1. `selectedRowKeys` / `onSelectedRowChange`
+2. `selectedColumnKeys` / `onSelectedColumnChange`
 3. `sortState` / `onSortStateChange`
 4. `filterState` / `onFilterStateChange`
 5. `editingCell` / `onEditingCellChange`
@@ -63,7 +63,7 @@
   columns={columns}
   dataSource={data}
   selectedRowKeys={selectedRowKeys}
-  onSelectedRowKeysChange={setSelectedRowKeys}
+  onSelectedRowChange={setSelectedRowKeys}
   sortState={sortState}
   onSortStateChange={setSortState}
   filterState={filterState}
@@ -92,11 +92,11 @@ interface ProTableProps<RecordType> {
 
   selectedRowKeys?: string[];
   defaultSelectedRowKeys?: string[];
-  onSelectedRowKeysChange?: (keys: string[], rows: RecordType[]) => void;
+  onSelectedRowChange?: (keys: string[], rows: RecordType[], indices: number[]) => void;
 
   selectedColumnKeys?: string[];
   defaultSelectedColumnKeys?: string[];
-  onSelectedColumnKeysChange?: (keys: string[]) => void;
+  onSelectedColumnChange?: (keys: string[]) => void;
 
   sortState?: SortState[];
   defaultSortState?: SortState[];

@@ -38,6 +38,7 @@ interface PaintOptions<Row extends object> {
   hoveredRowIndex: number | null;
   selectionRange: { anchor: GridSelection; focus: GridSelection } | null;
   selectedRowKeys: ReadonlySet<GridKey>;
+  rowSelectionMode: 'single' | 'multiple';
   selectedColumnKeys: ReadonlySet<string>;
   cellSpans: ReadonlyMap<string, TableResolvedCellSpan>;
   maxRowSpan: number;
@@ -60,6 +61,8 @@ const COLORS = {
   grid: '#e3e6e8',
   text: '#202124',
   muted: '#5f6368',
+  icon: '#9aa0a6',
+  borderStrong: '#b8bec4',
   selection: '#1677ff',
   selectionFill: '#edf4ff',
   axisSelectionFill: '#e8f2ff',
@@ -96,7 +99,7 @@ function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth
  * datasets cheap to scroll because only the visible viewport is painted.
  */
 export function paintGrid<Row extends object>(options: PaintOptions<Row>): void {
-  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, headerHeight, fixedHeader, verticalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
+  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, headerHeight, fixedHeader, verticalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
   const headerLeafTop = options.headerLeafTop ?? 0;
   const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
@@ -297,6 +300,59 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         if (rowIndex === rangeRowEnd) ctx.fillRect(x, y + cellHeight - 2, cellWidth, 2);
         if (columnIndex === rangeColumnStart) ctx.fillRect(x, y, 2, cellHeight);
         if (columnIndex === rangeColumnEnd) ctx.fillRect(x + cellWidth - 2, y, 2, cellHeight);
+      }
+      if (column.rowDragHandle) {
+        const iconLeft = x + (cellWidth - 16) / 2;
+        const iconTop = y + (cellHeight - 16) / 2;
+        ctx.fillStyle = colors.icon;
+        ctx.beginPath();
+        for (const circleX of [5, 11]) {
+          for (const circleY of [4, 8, 12]) {
+            ctx.moveTo(iconLeft + circleX + 1, iconTop + circleY);
+            ctx.arc(iconLeft + circleX, iconTop + circleY, 1, 0, Math.PI * 2);
+          }
+        }
+        ctx.fill();
+      }
+      if (column.rowSelection) {
+        const iconLeft = x + (cellWidth - 16) / 2;
+        const iconTop = y + (cellHeight - 16) / 2;
+        const checked = selectedRowKeys.has(rowKey);
+        ctx.save();
+        ctx.lineWidth = 1;
+        if (rowSelectionMode === 'single') {
+          ctx.beginPath();
+          ctx.arc(iconLeft + 8, iconTop + 8, 6.25, 0, Math.PI * 2);
+          ctx.fillStyle = colors.background;
+          ctx.fill();
+          ctx.strokeStyle = checked ? colors.selection : colors.borderStrong;
+          ctx.stroke();
+          if (checked) {
+            ctx.beginPath();
+            ctx.arc(iconLeft + 8, iconTop + 8, 3.25, 0, Math.PI * 2);
+            ctx.fillStyle = colors.selection;
+            ctx.fill();
+          }
+        } else {
+          ctx.beginPath();
+          ctx.roundRect(iconLeft + 1.5, iconTop + 1.5, 13, 13, 3);
+          ctx.fillStyle = checked ? colors.selection : colors.background;
+          ctx.fill();
+          ctx.strokeStyle = checked ? colors.selection : colors.borderStrong;
+          ctx.stroke();
+          if (checked) {
+            ctx.beginPath();
+            ctx.moveTo(iconLeft + 4.1, iconTop + 8);
+            ctx.lineTo(iconLeft + 6.45, iconTop + 10.35);
+            ctx.lineTo(iconLeft + 11.9, iconTop + 5.15);
+            ctx.strokeStyle = colors.background;
+            ctx.lineWidth = 1.75;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
       }
       if (!column.rowDragHandle && !column.rowSelection && !column.renderCell && !(editing?.rowIndex === rowIndex && editing.columnIndex === columnIndex)) {
         let label = '';

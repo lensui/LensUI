@@ -8,7 +8,7 @@ import { TextEditor } from './components/editors/TextEditor';
 import { timeFormatHasSeconds } from './core/dateTime';
 import { resolveGridLocale } from './core/i18n';
 import { createHeaderDragHandleSvg, createHeaderSearchSvg, createHeaderSortSvg, createRowDragHandleSvg } from './icons/domIcons';
-import { ContextMenuIcon, HeaderDragIcon, HeaderSearchIcon, HeaderSortIcon, LoadingSpinnerIcon, RowDragHandleIcon, SelectionIcon, SubmenuArrowIcon } from './icons/gridIcons';
+import { ContextMenuIcon, HeaderDragIcon, HeaderSearchIcon, HeaderSortIcon, LoadingSpinnerIcon, SelectionIcon, SubmenuArrowIcon } from './icons/gridIcons';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview';
 import { attachClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
@@ -332,11 +332,11 @@ export function Table<Row extends object>({
   rowSelection,
   selectedRowKeys,
   defaultSelectedRowKeys,
-  onSelectedRowKeysChange,
+  onSelectedRowChange,
   columnSelection,
   selectedColumnKeys,
   defaultSelectedColumnKeys,
-  onSelectedColumnKeysChange,
+  onSelectedColumnChange,
   columnDraggable = true,
   columnResizable = true,
   onColumnsReorder,
@@ -515,7 +515,7 @@ export function Table<Row extends object>({
   // Axis selections are tracked by stable keys rather than indices so sorting,
   // filtering, and row insertion do not silently select a different record.
   const [rowKeys, setRowKeys] = useControllableKeys(selectedRowKeys, defaultSelectedRowKeys, (keys) => {
-    if (!onSelectedRowKeysChange) return;
+    if (!onSelectedRowChange) return;
     const missing = new Set(keys.filter((key) => !rowByKeyRef.current.has(key)));
     if (missing.size > 0) {
       for (let index = 0; index < rows.length && missing.size > 0; index += 1) {
@@ -532,9 +532,9 @@ export function Table<Row extends object>({
       const index = rowIndexByKeyRef.current.get(key);
       return row && index !== undefined ? [{ row, index }] : [];
     });
-    onSelectedRowKeysChange(keys, entries.map(({ row }) => row), entries.map(({ index }) => index));
+    onSelectedRowChange(keys, entries.map(({ row }) => row), entries.map(({ index }) => index));
   });
-  const [columnKeys, setColumnKeys] = useControllableKeys(selectedColumnKeys, defaultSelectedColumnKeys, onSelectedColumnKeysChange);
+  const [columnKeys, setColumnKeys] = useControllableKeys(selectedColumnKeys, defaultSelectedColumnKeys, onSelectedColumnChange);
 
   // Cell editing is split into identity plus draft. The row data remains owned
   // by the consumer; Table only emits onCellChange when the draft commits.
@@ -1105,6 +1105,8 @@ export function Table<Row extends object>({
       grid: readThemeColor(themeStyles, '--rvg-color-grid', '#e3e6e8'),
       text: readThemeColor(themeStyles, '--rvg-color-text', '#202124'),
       muted: readThemeColor(themeStyles, '--rvg-color-muted', '#5f6368'),
+      icon: readThemeColor(themeStyles, '--rvg-color-icon', '#9aa0a6'),
+      borderStrong: readThemeColor(themeStyles, '--rvg-color-border-strong', '#b8bec4'),
       selection: readThemeColor(themeStyles, '--rvg-color-primary', '#1677ff'),
       selectionFill: readThemeColor(themeStyles, '--rvg-color-selection-fill', '#edf4ff'),
       axisSelectionFill: readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
@@ -1119,8 +1121,8 @@ export function Table<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
-  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
+  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -3142,28 +3144,10 @@ export function Table<Row extends object>({
     const currentScrollTop = scrollRef.current.top;
     const top = (fixedHeader ? 0 : bodyTop) + rowIndex * rowHeight - currentScrollTop;
     if (column.rowSelection) {
-      const rowKey = getRowKey(rows[rowIndex], rowIndex);
-      return (
-        <div
-          key={`selection:${String(rowKey)}`}
-          className="rvg-row-selection-icon"
-          style={{ left, top, width: cellWidth, height: cellHeight, opacity: isDraggedSource ? 0 : 1, transform: `translateY(${dragOffset}px)` }}
-        >
-          <SelectionIcon checked={selectedRowKeySet.has(rowKey)} radio={rowSelectionMode === 'single'} />
-        </div>
-      );
+      return null;
     }
     if (column.rowDragHandle) {
-      return (
-        <div
-          key={`drag:${String(getRowKey(rows[rowIndex], rowIndex))}`}
-          className="rvg-row-drag-icon"
-          style={{ left, top, width: cellWidth, height: cellHeight, opacity: isDraggedSource ? 0 : 1, transform: `translateY(${dragOffset}px)` }}
-          aria-hidden="true"
-        >
-          <RowDragHandleIcon />
-        </div>
-      );
+      return null;
     }
     if (column.renderCell && !(editing?.rowIndex === rowIndex && editing.columnIndex === columnIndex)) {
       const row = rows[rowIndex];
