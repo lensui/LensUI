@@ -22,8 +22,9 @@
     "LICENSE"
   ],
   "scripts": {
+    "dev": "vite --host 127.0.0.1",
     "build": "vite build && tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p demo/tsconfig.json --noEmit",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "prepublishOnly": "pnpm check"
