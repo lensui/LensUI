@@ -53,6 +53,39 @@ describe('Table utility column options', () => {
   });
 });
 
+describe('Table column resize', () => {
+  it('keeps sibling widths unchanged after columns were stretched to fill the viewport', () => {
+    const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onColumnResize = vi.fn();
+    const view = render(
+      <Table
+        columns={resizeColumns}
+        rows={rows}
+        rowNumber={false}
+        onColumnResize={onColumnResize}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    const spacer = view.container.querySelector<HTMLElement>('.rvg-spacer')!;
+
+    expect(spacer.style.width).toBe('400px');
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+    fireEvent(canvas, pointerEvent('pointerdown', 200));
+    fireEvent(canvas, pointerEvent('pointermove', 240));
+
+    expect(onColumnResize).toHaveBeenLastCalledWith('id', 240);
+    expect(spacer.style.width).toBe('440px');
+  });
+});
+
 describe('Table cell events and editing permissions', () => {
   const editableColumns: GridColumn<(typeof rows)[number]>[] = [
     { ...columns[0], width: 180, editable: (_value, row) => row.id === 1 },

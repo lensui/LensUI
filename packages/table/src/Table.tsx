@@ -406,6 +406,7 @@ function TableInner<Row extends object>({
   const customContextMenuConfig = typeof contextMenuConfig === 'object' ? contextMenuConfig : undefined;
   const [resizedColumnWidths, setResizedColumnWidths] = useState<Record<string, number>>({});
   const leafSourceColumns = useMemo(() => flattenDataColumns(sourceColumns), [sourceColumns]);
+  const sourceColumnWidthsRef = useRef(new Map(leafSourceColumns.map((column) => [column.key, column.width] as const)));
   const showRowCheckbox = Boolean(rowSelection) && (typeof rowSelection !== 'object' || rowSelection.showCheckbox !== false);
   useEffect(() => {
     if (!isProductionRuntime() && hasNestedFixedColumns(sourceColumns)) {
@@ -557,6 +558,9 @@ function TableInner<Row extends object>({
   }, [rangeSelection]);
 
   useEffect(() => {
+    const previousSourceWidths = sourceColumnWidthsRef.current;
+    const nextSourceWidths = new Map(leafSourceColumns.map((column) => [column.key, column.width] as const));
+    sourceColumnWidthsRef.current = nextSourceWidths;
     setResizedColumnWidths((current) => {
       const sourceColumnByKey = new Map(leafSourceColumns.map((column) => [column.key, column] as const));
       let changed = false;
@@ -567,7 +571,8 @@ function TableInner<Row extends object>({
           changed = true;
           return;
         }
-        if (sourceColumn.width !== undefined && sourceColumn.width !== value) {
+        const sourceWidthChanged = previousSourceWidths.get(key) !== sourceColumn.width;
+        if (sourceWidthChanged && sourceColumn.width !== undefined && sourceColumn.width !== value) {
           changed = true;
           return;
         }
@@ -848,7 +853,11 @@ function TableInner<Row extends object>({
     setEditing(null);
   }, [editing, selection]);
 
-  const metrics = useMemo(() => buildColumnMetrics(columns, { columnDraggable, viewportWidth: viewport.width }), [columnDraggable, columns, viewport.width]);
+  const hasManualColumnWidths = Object.keys(resizedColumnWidths).length > 0;
+  const metrics = useMemo(() => buildColumnMetrics(columns, {
+    columnDraggable,
+    viewportWidth: hasManualColumnWidths ? 0 : viewport.width,
+  }), [columnDraggable, columns, hasManualColumnWidths, viewport.width]);
   const contentWidth = metrics.length > 0 ? metrics[metrics.length - 1].right : 0;
   const contentHeight = rows.length * rowHeight;
   const fixedWidth = useMemo(() => columns.reduce((width, column, index) => column.fixed === 'left' ? width + metrics[index].width : width, 0), [columns, metrics]);
@@ -1434,7 +1443,8 @@ function TableInner<Row extends object>({
     const horizontalThumb = horizontalScrollbarThumbRef.current;
     if (!scroller || !verticalTrack || !verticalThumb || !horizontalTrack || !horizontalThumb) return;
     const maxScrollTop = scroller.scrollHeight - scroller.clientHeight;
-    if (maxScrollTop <= 1 || renderHeight <= 0) {
+    const contentFitsAutoHeight = autoHeight && effectiveHeight >= realContentHeight - 1;
+    if (contentFitsAutoHeight || maxScrollTop <= 1 || renderHeight <= 0) {
       verticalTrack.style.display = 'none';
     } else {
       const top = fixedHeader ? bodyTop : 0;
@@ -1475,7 +1485,7 @@ function TableInner<Row extends object>({
     horizontalTrack.style.bottom = `${bottomSummaryHeight + 2}px`;
     horizontalThumb.style.width = `${Math.min(trackWidth, thumbWidth)}px`;
     horizontalThumb.style.transform = `translateX(${thumbLeft}px)`;
-  }, [bodyTop, bottomSummaryHeight, effectiveHeight, fixedHeader, fixedWidth, renderHeight, rightFixedWidth, viewport.width]);
+  }, [autoHeight, bodyTop, bottomSummaryHeight, effectiveHeight, fixedHeader, fixedWidth, realContentHeight, renderHeight, rightFixedWidth, viewport.width]);
 
   useLayoutEffect(() => {
     updateCustomScrollbars();
@@ -2682,6 +2692,18 @@ function TableInner<Row extends object>({
       const { cell: resizeCell, edge: resizeEdge } = resizeHit;
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
+      setResizedColumnWidths((current) => {
+        let changed = false;
+        const next = { ...current };
+        columns.forEach((column, index) => {
+          if (column.rowSelection || column.rowDragHandle || column.rowNumber) return;
+          const displayedWidth = metrics[index]?.width;
+          if (displayedWidth === undefined || next[column.key] === displayedWidth) return;
+          next[column.key] = displayedWidth;
+          changed = true;
+        });
+        return changed ? next : current;
+      });
       const resizeIndex = resizeCell.endIndex;
       const resizeIndices = resizeCell.leaf
         ? [resizeIndex]
@@ -2719,7 +2741,7 @@ function TableInner<Row extends object>({
       const nextColumns = columns.map((column, index) => (
         widthByIndex.has(index) ? { ...column, width: widthByIndex.get(index) } : column
       ));
-      const nextMetrics = buildColumnMetrics(nextColumns, { columnDraggable, viewportWidth: viewport.width });
+      const nextMetrics = buildColumnMetrics(nextColumns, { columnDraggable, viewportWidth: 0 });
       setResizeGuideX(getHeaderCellEdgeFromMetrics(drag.resizeStartIndex, drag.resizeEndIndex, drag.resizeEdge, nextMetrics));
     };
     if (drag.resizeIndices.length > 1) {
