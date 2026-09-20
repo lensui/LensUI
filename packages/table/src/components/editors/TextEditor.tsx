@@ -1,7 +1,6 @@
 import type { CSSProperties, KeyboardEvent } from 'react';
 import { ClearValueIcon } from '../../icons/gridIcons';
 import type { TableLabels } from '../../types';
-import { CELL_FONT } from '../../core/typography';
 
 interface TextEditorProps {
   value: string;
@@ -27,7 +26,7 @@ export function TextEditor({ value, type, style, labels, onChange, onCommit, onC
     <div className="rvg-native-editor has-clear" style={style}>
       <input
         type={type}
-        style={{ font: CELL_FONT, textAlign: style.textAlign }}
+        style={{ font: 'var(--rvg-font-size-body) Inter, ui-sans-serif, system-ui, sans-serif', textAlign: style.textAlign }}
         value={value}
         autoFocus
         onChange={(event) => onChange(event.target.value)}

@@ -1,6 +1,6 @@
 import type { GridColumn, GridSelection, GridKey, GridSortState, TableResolvedCellSpan, ViewportRange } from '../types';
 import { getDisplayLabel } from './format';
-import { CELL_FONT, getCellBaselineOffset } from './typography';
+import { createCellFont, getCellBaselineOffset } from './typography';
 import { getVisibleHeaderActions, HEADER_ACTION_SLOT_WIDTH, type ColumnMetric } from './layout';
 
 type PaintColumn<Row> = GridColumn<Row> & {
@@ -17,6 +17,7 @@ interface PaintOptions<Row extends object> {
   scrollLeft: number;
   scrollTop: number;
   rowHeight: number;
+  bodyFontSize: number;
   headerHeight: number;
   headerLeafTop?: number;
   headerLeafHeight?: number;
@@ -101,7 +102,7 @@ function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth
  * datasets cheap to scroll because only the visible viewport is painted.
  */
 export function paintGrid<Row extends object>(options: PaintOptions<Row>): void {
-  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, headerHeight, fixedHeader, verticalBorderless, horizontalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
+  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, bodyFontSize, headerHeight, fixedHeader, verticalBorderless, horizontalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
   const headerLeafTop = options.headerLeafTop ?? 0;
   const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
@@ -122,7 +123,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = colors.background;
   ctx.fillRect(0, 0, width, height);
-  ctx.font = CELL_FONT;
+  ctx.font = createCellFont(bodyFontSize);
   const cellBaselineOffset = getCellBaselineOffset(ctx);
   ctx.textBaseline = 'middle';
   const leftFixedWidth = columns.reduce((value, column, index) => column.fixed === 'left' ? value + metrics[index].width : value, 0);
@@ -374,7 +375,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
           ctx.rect(x + 2, y + 1, Math.max(0, cellWidth - 4), cellHeight - 2);
           ctx.clip();
           ctx.fillStyle = cellStyle?.color ?? colors.text;
-          ctx.font = CELL_FONT;
+          ctx.font = createCellFont(bodyFontSize);
           ctx.textBaseline = 'alphabetic';
           ctx.textAlign = column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left';
           ctx.fillText(label, textX, y + cellHeight / 2 + cellBaselineOffset);

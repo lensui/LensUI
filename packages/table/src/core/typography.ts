@@ -1,5 +1,5 @@
-/** Shared by canvas cell labels and native cell editors. */
-export const CELL_FONT = '13px Inter, ui-sans-serif, system-ui, sans-serif';
+/** Creates the canvas font used for body cell labels. */
+export const createCellFont = (fontSize = 13) => `${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
 
 export function getCellBaselineOffset(context: CanvasRenderingContext2D): number {
   context.save();

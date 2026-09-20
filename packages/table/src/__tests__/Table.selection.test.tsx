@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createRef } from 'react';
+import { createRef, type CSSProperties } from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Table } from '../Table';
@@ -19,6 +19,15 @@ afterEach(() => {
 });
 
 describe('Table utility column options', () => {
+  it('configures body text size through the theme variable without changing the header', () => {
+    const view = render(<Table columns={columns} rows={rows} style={{ '--rvg-font-size-body': '12px' } as CSSProperties} />);
+    const root = view.container.querySelector<HTMLElement>('.rvg-root')!;
+    const headerText = view.getByText('Name');
+
+    expect(root.style.getPropertyValue('--rvg-font-size-body')).toBe('12px');
+    expect(headerText.closest('.rvg-header-title')?.getAttribute('style')).not.toContain('font-size');
+  });
+
   it('controls horizontal separators independently from vertical borders and stripes', () => {
     const view = render(<Table columns={columns} rows={rows} horizontalBorderless striped />);
     const root = view.container.querySelector('.rvg-root')!;

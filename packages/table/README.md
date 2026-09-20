@@ -579,6 +579,7 @@ const columns: GridColumn<Row>[] = [
     '--rvg-color-bg': '#0f172a',
     '--rvg-color-text': '#e5e7eb',
     '--rvg-color-grid': '#334155',
+    '--rvg-font-size-body': '12px',
   } as React.CSSProperties}
 />
 ```
@@ -587,6 +588,7 @@ const columns: GridColumn<Row>[] = [
 
 | 变量                                | 说明                                                                               |
 | ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `--rvg-font-size-body`            | 数据正文及单元格编辑器字号，默认 `13px`；不影响表头字号。                         |
 | `--rvg-color-bg`                  | 表格背景色。                                                                       |
 | `--rvg-color-header-bg`           | 表头背景色。                                                                       |
 | `--rvg-color-text`                | 主文本颜色。                                                                       |

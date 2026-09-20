@@ -215,6 +215,11 @@ function readThemeColor(styles: CSSStyleDeclaration, name: string, fallback: str
   return styles.getPropertyValue(name).trim() || fallback;
 }
 
+function readThemePixel(styles: CSSStyleDeclaration, name: string, fallback: number) {
+  const value = Number.parseFloat(styles.getPropertyValue(name));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function getDefaultRowKey<Row extends object>(row: Row, index: number): GridKey {
   const id = (row as Record<string, unknown>).id;
   return typeof id === 'string' || typeof id === 'number' ? id : index;
@@ -1113,6 +1118,7 @@ function TableInner<Row extends object>({
     const context = canvas.getContext('2d');
     if (!context) return;
     const themeStyles = getComputedStyle(canvas);
+    const bodyFontSize = readThemePixel(themeStyles, '--rvg-font-size-body', 13);
     const themeColors = {
       background: readThemeColor(themeStyles, '--rvg-color-bg', '#ffffff'),
       header: readThemeColor(themeStyles, '--rvg-color-header-bg', '#f5f6f7'),
@@ -1135,7 +1141,7 @@ function TableInner<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, bodyFontSize, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
   }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
@@ -3761,7 +3767,10 @@ function TableInner<Row extends object>({
                 } else {
                   const label = getCellLabel(cell.rowIndex, cell.columnIndex);
                   const context = event.currentTarget.getContext('2d');
-                  if (context) context.font = '13px Inter, ui-sans-serif, system-ui, sans-serif';
+                  if (context) {
+                    const bodyFontSize = readThemePixel(getComputedStyle(event.currentTarget), '--rvg-font-size-body', 13);
+                    context.font = `${bodyFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+                  }
                   const truncated = Boolean(label && context && context.measureText(label).width + 20 > metrics[cell.columnIndex].width);
                   if (!label || (!tooltipConfig.cell && !truncated)) {
                     showCellTooltipAfterDelay(null);
