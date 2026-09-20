@@ -4,7 +4,12 @@ export { Table, Table as VelocityGrid } from './Table';
 export { buildColumnMetrics, getViewportRange, hitTestColumn } from './core/layout';
 export type {
   AxisSelectionConfig,
+  RowSelectionConfig,
+  TableRowNumberConfig,
   CellChange,
+  TableCellContext,
+  TableRef,
+  TableRef as VelocityGridRef,
   CellChange as TableCellChange,
   ContextMenuEvent,
   ContextMenuEvent as TableContextMenuEvent,

@@ -1,0 +1,194 @@
+// @vitest-environment jsdom
+import { createRef } from 'react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Table } from '../Table';
+import type { GridColumn, TableRef } from '../types';
+
+const rows = [{ id: 1, name: 'One' }, { id: 2, name: 'Two' }, { id: 3, name: 'Three' }];
+const columns: GridColumn<(typeof rows)[number]>[] = [{ key: 'name', title: 'Name', dataIndex: 'name', width: 800 }];
+
+beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(200);
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe('Table utility column options', () => {
+  it('moves the row number header into the scrolling layer and can fix or hide it again', () => {
+    const view = render(<Table columns={columns} rows={rows} rowSelection />);
+    expect(view.getByRole('grid').getAttribute('aria-colcount')).toBe('3');
+    expect(view.getByText('#').closest('.rvg-text-scroll-content')).toBeNull();
+    view.rerender(<Table columns={columns} rows={rows} rowSelection rowNumber={{ fixed: false }} />);
+    expect(view.getAllByText('#')).toHaveLength(1);
+    expect(view.getByText('#').closest('.rvg-text-scroll-content')).toBeTruthy();
+    const scroller = view.getByRole('grid');
+    fireEvent.scroll(scroller, { target: { scrollLeft: 30 } });
+    expect(view.getByText('#').closest<HTMLElement>('.rvg-text-scroll-content')?.style.transform).toBe('translateX(-30px)');
+    view.rerender(<Table columns={columns} rows={rows} rowNumber={{ fixed: true }} />);
+    expect(view.getByText('#').closest('.rvg-text-scroll-content')).toBeNull();
+    view.rerender(<Table columns={columns} rows={rows} rowNumber={false} />);
+    expect(view.queryByText('#')).toBeNull();
+  });
+
+  it.each(['single', 'multiple'] as const)('selects rows without checkboxes in %s mode', (mode) => {
+    const onChange = vi.fn();
+    const view = render(<Table columns={columns} rows={rows} rowSelection={{ mode, showCheckbox: false }} onSelectedRowChange={onChange} />);
+    expect(view.getByRole('grid').getAttribute('aria-colcount')).toBe('2');
+    expect(view.container.querySelector('.rvg-header-selection-icon')).toBeNull();
+    const canvas = view.container.querySelector('canvas')!;
+    fireEvent.click(canvas, { clientX: 80, clientY: 55 });
+    expect(onChange).toHaveBeenLastCalledWith([1], [rows[0]], [0]);
+    fireEvent.click(canvas, { clientX: 80, clientY: 90, ctrlKey: true });
+    expect(onChange.mock.lastCall?.[0]).toEqual(mode === 'single' ? [2] : [1, 2]);
+    fireEvent.click(canvas, { clientX: 80, clientY: 125, shiftKey: true });
+    expect(onChange.mock.lastCall?.[0]).toEqual(mode === 'single' ? [3] : [2, 3]);
+    view.rerender(<Table columns={columns} rows={rows} rowSelection onSelectedRowChange={onChange} />);
+    expect(view.getByRole('grid').getAttribute('aria-colcount')).toBe('3');
+    expect(view.container.querySelector('.rvg-header-selection-icon')).toBeTruthy();
+  });
+});
+
+describe('Table cell events and editing permissions', () => {
+  const editableColumns: GridColumn<(typeof rows)[number]>[] = [
+    { ...columns[0], width: 180, editable: (_value, row) => row.id === 1 },
+  ];
+
+  it('reports click and double click context for read-only data cells, excluding utility columns', () => {
+    const onClick = vi.fn();
+    const onDoubleClick = vi.fn();
+    const view = render(<Table columns={columns} rows={rows} onCellClick={onClick} onCellDoubleClick={onDoubleClick} />);
+    const canvas = view.container.querySelector('canvas')!;
+    fireEvent.click(canvas, { clientX: 80, clientY: 55, detail: 1 });
+    expect(onClick.mock.lastCall?.[0]).toMatchObject({ rowKey: 1, columnKey: 'name', rowIndex: 0, columnIndex: 1, row: rows[0], value: 'One' });
+    fireEvent.click(canvas, { clientX: 80, clientY: 55, detail: 2 });
+    fireEvent.doubleClick(canvas, { clientX: 80, clientY: 55 });
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onDoubleClick.mock.lastCall?.[0]).toMatchObject({ row: rows[0], value: 'One' });
+    fireEvent.click(canvas, { clientX: 20, clientY: 55 });
+    fireEvent.doubleClick(canvas, { clientX: 20, clientY: 55 });
+    expect(onDoubleClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks per-row permissions for double click, keyboard, and the context menu', () => {
+    const view = render(<Table columns={editableColumns} rows={rows} />);
+    const canvas = view.container.querySelector('canvas')!;
+    fireEvent.doubleClick(canvas, { clientX: 80, clientY: 90 });
+    expect(view.queryByRole('textbox')).toBeNull();
+    fireEvent.click(canvas, { clientX: 80, clientY: 90 });
+    fireEvent.keyDown(view.getByRole('grid'), { key: 'Enter' });
+    expect(view.queryByRole('textbox')).toBeNull();
+    fireEvent.contextMenu(canvas, { clientX: 80, clientY: 90 });
+    expect((view.getByRole('menuitem', { name: '编辑' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(canvas, { clientX: 80, clientY: 55 });
+    fireEvent.keyDown(view.getByRole('grid'), { key: 'Enter' });
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('One');
+  });
+
+  it('allows preventing double-click editing and rechecks permission before commit', () => {
+    let allowed = true;
+    const dynamicColumns = [{ ...editableColumns[0], editable: () => allowed }];
+    const onChange = vi.fn();
+    const view = render(<Table columns={dynamicColumns} rows={rows} onCellDoubleClick={(_cell, event) => event.preventDefault()} onCellChange={onChange} />);
+    const canvas = view.container.querySelector('canvas')!;
+    fireEvent.click(canvas, { clientX: 80, clientY: 55 });
+    fireEvent.doubleClick(canvas, { clientX: 80, clientY: 55 });
+    expect(view.queryByRole('textbox')).toBeNull();
+    view.rerender(<Table columns={dynamicColumns} rows={rows} onCellChange={onChange} />);
+    fireEvent.doubleClick(canvas, { clientX: 80, clientY: 55 });
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'Changed' } });
+    allowed = false;
+    fireEvent.keyDown(view.getByRole('textbox'), { key: 'Enter' });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(view.queryByRole('textbox')).toBeNull();
+    allowed = true;
+    fireEvent.doubleClick(canvas, { clientX: 80, clientY: 55 });
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'Changed' } });
+    fireEvent.keyDown(view.getByRole('textbox'), { key: 'Enter' });
+    expect(onChange.mock.lastCall?.[0]).toMatchObject({ rowKey: 1, previousValue: 'One', value: 'Changed' });
+  });
+});
+
+
+describe('Table ref', () => {
+  it('focuses, selects, reads and clears state, and releases the ref on unmount', () => {
+    const ref = createRef<TableRef<(typeof rows)[number]>>();
+    const view = render(<Table ref={ref} columns={columns} rows={rows} rowSelection columnSelection />);
+    act(() => {
+      ref.current!.focus();
+      expect(ref.current!.setSelectedCell({ rowKey: 2, columnKey: 'name' })).toBe(true);
+      ref.current!.setSelectedRowKeys([1, 2, 2]);
+      ref.current!.setSelectedColumnKeys(['name', 'missing']);
+    });
+    expect(document.activeElement).toBe(view.getByRole('grid'));
+    expect(ref.current!.getSelectedCell()).toMatchObject({ rowKey: 2, columnKey: 'name', value: 'Two' });
+    expect(ref.current!.getSelectedRows()).toEqual([rows[0], rows[1]]);
+    const keys = ref.current!.getSelectedRowKeys();
+    keys.push(3);
+    expect(ref.current!.getSelectedRowKeys()).toEqual([1, 2]);
+    expect(ref.current!.getSelectedColumnKeys()).toEqual(['name']);
+    act(() => {
+      expect(ref.current!.setSelectedCell({ rowKey: 999, columnKey: 'name' })).toBe(false);
+      expect(ref.current!.scrollToCell({ rowKey: 1, columnKey: 'missing' })).toBe(false);
+    });
+    expect(ref.current!.getSelectedCell()?.rowKey).toBe(2);
+    act(() => ref.current!.clearSelection());
+    expect(ref.current!.getSelectedCell()).toBeNull();
+    expect(ref.current!.getSelectedRowKeys()).toEqual([]);
+    expect(ref.current!.getSelectedColumnKeys()).toEqual([]);
+    view.unmount();
+    expect(ref.current).toBeNull();
+  });
+
+  it('supports editing and uses updated row data and permissions', () => {
+    const ref = createRef<TableRef<(typeof rows)[number]>>();
+    const onChange = vi.fn();
+    const editableColumns = [{ ...columns[0], width: 180, editable: (_value: unknown, row: (typeof rows)[number]) => row.id === 1 }];
+    const view = render(<Table ref={ref} columns={editableColumns} rows={rows} onCellChange={onChange} />);
+    act(() => expect(ref.current!.startEdit({ rowKey: 2, columnKey: 'name' })).toBe(false));
+    act(() => expect(ref.current!.startEdit({ rowKey: 1, columnKey: 'name' })).toBe(true));
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'Updated' } });
+    act(() => ref.current!.commitEdit());
+    expect(onChange.mock.lastCall?.[0]).toMatchObject({ rowKey: 1, value: 'Updated' });
+    const updatedRows = [{ id: 1, name: 'Fresh' }, ...rows.slice(1)];
+    view.rerender(<Table ref={ref} columns={editableColumns} rows={updatedRows} onCellChange={onChange} />);
+    act(() => expect(ref.current!.startEdit()).toBe(true));
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('Fresh');
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'Discard' } });
+    act(() => ref.current!.cancelEdit());
+    expect(view.queryByRole('textbox')).toBeNull();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    view.rerender(<Table ref={ref} columns={[{ ...editableColumns[0], editable: false }]} rows={updatedRows} />);
+    act(() => expect(ref.current!.startEdit()).toBe(false));
+  });
+
+  it('respects controlled selection and single-selection mode', () => {
+    const ref = createRef<TableRef<(typeof rows)[number]>>();
+    const onRows = vi.fn();
+    const onCell = vi.fn();
+    const view = render(<Table ref={ref} columns={columns} rows={rows} selectedCell={null} selectedRowKeys={[1]} rowSelection={{ mode: 'single' }} onSelectedRowChange={onRows} onSelectedCellChange={onCell} />);
+    act(() => {
+      ref.current!.setSelectedRowKeys([2, 3]);
+      ref.current!.setSelectedCell({ rowKey: 2, columnKey: 'name' });
+    });
+    expect(onRows.mock.lastCall?.[0]).toEqual([2]);
+    expect(onCell.mock.lastCall?.[0]).toMatchObject({ rowKey: 2, columnKey: 'name' });
+    expect(ref.current!.getSelectedRowKeys()).toEqual([1]);
+    expect(ref.current!.getSelectedCell()).toBeNull();
+    view.rerender(<Table ref={ref} columns={columns} rows={rows} selectedRowKeys={[2]} />);
+    expect(ref.current!.getSelectedRowKeys()).toEqual([2]);
+  });
+
+  it('scrolls to a row without changing selection', () => {
+    const ref = createRef<TableRef<(typeof rows)[number]>>();
+    const manyRows = Array.from({ length: 30 }, (_, id) => ({ id, name: String(id) }));
+    const view = render(<Table ref={ref} columns={[{ ...columns[0], width: 180 }]} rows={manyRows} height={200} />);
+    act(() => expect(ref.current!.scrollToCell({ rowKey: 29, columnKey: 'name' })).toBe(true));
+    expect(view.getByRole('grid').scrollTop).toBeGreaterThan(0);
+    expect(ref.current!.getSelectedCell()).toBeNull();
+  });
+});

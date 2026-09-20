@@ -104,12 +104,12 @@ export function Example() {
 | `virtualized`                | `boolean \| { enabled?: boolean; overscan?: number }`                               | `true`          | 虚拟渲染配置。传`false` 时渲染全部行列；传对象时可通过 `enabled` 开关，并用 `overscan` 配置可见范围外的缓冲行列数量，默认 `4`。 |
 | `tooltip`                    | `boolean \| { header?: boolean; cell?: boolean }`                                   | `true`          | 文本 tooltip 总配置。传`true` 时表头和单元格 hover 都显示完整文本；传 `false` 可关闭；传对象可分别控制表头和单元格。                |
 | `summary`                    | `boolean \| { position?: 'top' \| 'bottom'; verticalBordered?: boolean; emptyValue?: ReactNode }` | `false`         | 表格级合计行配置。默认不显示；传 `true` 或对象即开启合计行，对象可控制显示在表头下方或底部、是否显示内部竖线，以及无合计值单元格的填充内容。     |
-| `rowNumber`                  | `boolean`                                                                          | `true`          | 是否显示序号列。默认开启并自动生成左侧序号列，不需要在`columns` 中配置；传 `false` 可关闭。                                         |
+| `rowNumber`                  | `boolean \| TableRowNumberConfig`                                                                          | `true`          | 是否显示序号列。默认开启并自动生成左侧序号列，不需要在`columns` 中配置；传 `false` 可关闭。传 `{ fixed: false }` 可取消序号列固定，`fixed` 默认 `true`。                                         |
 | `selectedCell`               | `GridSelectionTarget \| null`                                                       | 非受控            | 受控单元格选中状态。传 `columnKey`，行可使用 `rowKey` 或 `rowIndex` 定位。                                                              |
 | `defaultSelectedCell`        | `GridSelectionTarget \| null`                                                       | `null`            | 默认选中单元格。传 `columnKey`，行可使用 `rowKey` 或 `rowIndex` 定位。                                                                  |
 | `onSelectedCellChange`       | `(selection) => void`                                                              | -                 | 单元格选中变化回调，`selection.value` 为当前单元格的原始值。                                                                            |
 | `rangeSelection`             | `boolean`                                                                          | `false`         | 是否允许鼠标拖动选择多个单元格。开启后支持范围复制、范围右键菜单和右下角拖拽扩展范围。                                                  |
-| `rowSelection`               | `boolean \| AxisSelectionConfig`                                                    | `false`         | 开启行选择。可传`{ mode: 'single' \| 'multiple' }`；开启后组件自动生成左侧选择列，不需要在 `columns` 中配置。                        |
+| `rowSelection`               | `boolean \| RowSelectionConfig`                                                     | `false`         | 开启行选择。可传`{ mode: 'single' \| 'multiple', showCheckbox: false }` 隐藏选择框并通过点击数据单元格选择行；默认显示选择框。默认自动生成左侧选择列，不需要在 `columns` 中配置。                        |
 | `selectedRowKeys`            | `GridKey[]`                                                                        | 非受控            | 受控行选择 key 列表。                                                                                                                   |
 | `defaultSelectedRowKeys`     | `GridKey[]`                                                                        | `[]`            | 非受控模式下默认选中的行 key。                                                                                                          |
 | `onSelectedRowChange`        | `(keys, rows, indices) => void`                                                    | -                 | 行选择变化回调。                                                                                                                        |
@@ -128,6 +128,8 @@ export function Example() {
 | `onSortChange`               | `(rows, state) => Row[]`                                                           | -                 | 自定义排序方法。排序状态由组件内部管理；返回排序后的行。                                                                                |
 | `onFilterChange`             | `(rows, values) => Row[]`                                                          | -                 | 自定义筛选方法。筛选值由组件内部管理；返回符合条件的行。                                                                                |
 | `onCellChange`               | `(change) => void`                                                                 | -                 | 单元格编辑提交回调。                                                                                                                    |
+| `onCellClick` | `(cell: TableCellContext<Row>, event: React.MouseEvent<HTMLElement>) => void` | - | 数据单元格单击回调；调用 `event.preventDefault()` 可阻止默认选择行为。 |
+| `onCellDoubleClick` | `(cell: TableCellContext<Row>, event: React.MouseEvent<HTMLElement>) => void` | - | 数据单元格双击回调，在编辑前触发；调用 `event.preventDefault()` 可阻止进入编辑。 |
 | `onCellContextMenu`          | `(event) => void`                                                                  | -                 | 单元格右键回调，可用于扩展自定义菜单逻辑。                                                                                              |
 | `contextMenu`                | `boolean \| { header?, cell?, range? }`                                             | `true`          | `true` 开启默认右键菜单，`false` 关闭右键菜单，传对象可自定义菜单项、顺序和分割线。                                                 |
 | `emptyContent`               | `ReactNode`                                                                        | 内置空状态        | 自定义空数据内容。                                                                                                                      |
@@ -206,7 +208,7 @@ export function Example() {
 | `width`      | `number`                                                                 | `140`              | 列宽，单位 px。最小宽度由内部布局保护。                                                     |
 | `fixed`      | `'left' \| 'right'`                                                       | -                    | 固定列位置。左/右固定列会覆盖滚动列并显示阴影。                                             |
 | `align`      | `'left' \| 'center' \| 'right'`                                            | `'left'`           | 单元格文本和拖拽预览文本对齐方式。                                                          |
-| `editable`   | `boolean`                                                                | `false`            | 是否允许双击或按 Enter 进入编辑。                                                           |
+| `editable`   | `boolean \| ((value: unknown, row: Row, rowIndex: number) => boolean)`                                                                | `false`            | 是否允许双击、Enter 或右键菜单进入编辑。函数按当前单元格动态判断，提交时再次检查权限。                                                           |
 | `editor`     | `EditorConfig`                                                           | `{ type: 'text' }` | 内置编辑器配置。详见下方编辑器表。未配置时默认使用文本编辑器。                              |
 | `sortable`   | `boolean`                                                                | `true`             | 表头显示排序按钮。普通数据列默认开启，传 `false` 可关闭。                 |
 | `filterable` | `boolean`                                                                | `true`             | 表头显示筛选按钮。普通数据列默认开启，传 `false` 可关闭。                 |
@@ -494,7 +496,7 @@ const columns: GridColumn<Row>[] = [
 
 拖拽后组件会在内部维护新的行列顺序，因此排序回调不是必需的。需要持久化或同步结果时，可以通过回调直接取得排序后的 `rows` 或 `columns`。列宽调整默认开启并支持非受控使用，传 `columnResizable={false}` 可关闭。
 
-`columnDraggable` 默认开启，普通列会自动显示表头拖拽入口。行选择和行拖拽是表格级配置：开启 `rowSelection` 后自动生成左侧选择列，开启 `rowDraggable` 后自动生成左侧拖拽手柄列，不需要在 `columns` 里配置 `rowSelection` 或 `rowDragHandle`。
+`columnDraggable` 默认开启，普通列会自动显示表头拖拽入口。行选择和行拖拽是表格级配置：开启 `rowSelection` 后默认自动生成左侧选择列（`showCheckbox: false` 时隐藏），开启 `rowDraggable` 后自动生成左侧拖拽手柄列，不需要在 `columns` 里配置 `rowSelection` 或 `rowDragHandle`。
 
 ```tsx
 <Table
@@ -513,6 +515,20 @@ const columns: GridColumn<Row>[] = [
   }}
 />;
 ```
+
+隐藏选择框时不生成选择列，表头全选框也会隐藏；行选择状态、回调和右键菜单仍然可用。多选模式支持 Ctrl / Command 点击追加或取消选择，以及 Shift 点击连续选择。
+
+```tsx
+<Table
+  columns={columns}
+  rows={rows}
+  rowNumber={{ fixed: false }}
+  rowSelection={{ mode: 'multiple', showCheckbox: false }}
+  onSelectedRowChange={(keys, selectedRows) => console.log(keys, selectedRows)}
+/>
+```
+
+`rowNumber={true}` 或 `rowNumber={{ fixed: true }}` 固定序号列；`rowNumber={false}` 隐藏序号列。
 
 ## 虚拟渲染
 
@@ -693,3 +709,76 @@ pnpm check
 ## License
 
 MIT
+
+## 单元格事件与动态编辑权限
+
+```tsx
+const columns: TableColumn<MyRow>[] = [
+  {
+    key: 'name',
+    title: '姓名',
+    dataIndex: 'name',
+    editable: (_value, row, _rowIndex) => row.status === 'draft',
+  },
+];
+
+<Table
+  columns={columns}
+  rows={rows}
+  onCellClick={(cell, event) => {
+    console.log(cell.row, cell.column, cell.value, cell.rowIndex, cell.columnIndex);
+  }}
+  onCellDoubleClick={(cell, event) => {
+    console.log(cell.rowKey, cell.columnKey);
+    // event.preventDefault(); // 阻止本次双击进入编辑
+  }}
+/>
+```
+
+事件只针对数据单元格，表头、序号列、选择列和拖拽手柄不触发；只读单元格也会触发。双击时先触发一次单击回调，再触发双击回调，不延迟单击。合并单元格返回其起始单元格，索引基于当前显示顺序，`columnIndex` 包含工具列。
+
+`editable` 保持兼容布尔值；函数接收当前值、行数据和当前行索引，返回 `true` 才允许编辑。编辑期间权限变为 `false` 时，提交会关闭编辑器并丢弃草稿，不触发 `onCellChange`。
+
+## Ref 方法
+
+支持 React 18+ 的对象 ref 和回调 ref，保留行数据的泛型推导；`VelocityGrid` 别名同样支持。可导入 `TableRef<Row>`（或 `VelocityGridRef<Row>`）。
+
+```tsx
+import { useRef } from 'react';
+import { Table, type TableRef } from '@lensui/lens-table';
+
+function Example() {
+  const tableRef = useRef<TableRef<MyRow>>(null);
+  return (
+    <>
+      <button onClick={() => tableRef.current?.scrollToCell({ rowKey: 1, columnKey: 'name' })}>
+        定位
+      </button>
+      <button onClick={() => tableRef.current?.startEdit({ rowKey: 1, columnKey: 'name' })}>
+        编辑
+      </button>
+      <Table ref={tableRef} columns={columns} rows={rows} rowSelection />
+    </>
+  );
+}
+```
+
+| 方法 | 说明 |
+| --- | --- |
+| `focus()` | 聚焦表格，启用键盘操作。 |
+| `scrollToCell(target)` | 将目标数据单元格滚入可见区域，不改变选择；目标不存在时返回 `false`。 |
+| `getSelectedCell()` | 返回当前单元格的 `TableCellContext<Row>`，未选择时返回 `null`。 |
+| `setSelectedCell(target \| null)` | 设置或清除单元格选择，同时清除范围选择；无效目标返回 `false` 并保留原选择。 |
+| `getSelectedRowKeys()` | 返回所选行 key 的数组副本。 |
+| `getSelectedRows()` | 返回当前筛选和排序结果中选中的行数据，按显示顺序排列。 |
+| `setSelectedRowKeys(keys)` | 设置行选择并触发现有回调；需要开启 `rowSelection`，单选模式只取第一个 key。 |
+| `getSelectedColumnKeys()` | 返回所选列 key 的数组副本。 |
+| `setSelectedColumnKeys(keys)` | 设置数据列选择，忽略无效列；需要开启 `columnSelection`，单选模式只取第一个有效 key。 |
+| `clearSelection()` | 清空单元格、范围、行和列选择，并取消编辑。 |
+| `startEdit(target?)` | 选择并编辑目标单元格；省略参数时编辑当前选择。目标无效或 `editable` 不允许时返回 `false`。 |
+| `commitEdit()` | 提交当前草稿并关闭编辑器，遵循 `editable` 动态权限和 `onCellChange`。 |
+| `cancelEdit()` | 丢弃当前草稿并关闭编辑器。 |
+
+`target` 使用 `{ rowKey, columnKey }` 或 `{ rowIndex, columnKey }`；`rowKey` 优先，`rowIndex` 为当前显示顺序中的零基索引。工具列不能作为目标；合并单元格自动定位到起始单元格。
+
+选择方法遵守受控／非受控约定：传入 `selectedCell`、`selectedRowKeys` 或 `selectedColumnKeys` 后，需要在相应回调中更新这些 props。尤其是受控单元格选择下的 `startEdit`，外部需要接受新的选择才能保持编辑器打开。读取方法反映最近一次 React 渲染完成后的状态，不保证在调用设置方法的同一同步代码段内立即更新；返回的行和列对象是原数据引用。

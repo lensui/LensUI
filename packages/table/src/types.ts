@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, MouseEvent, ReactNode } from 'react';
 
 export type GridKey = string | number;
 export type SelectionMode = 'single' | 'multiple';
@@ -176,6 +176,16 @@ export interface AxisSelectionConfig {
   mode?: SelectionMode;
 }
 
+export interface RowSelectionConfig extends AxisSelectionConfig {
+  /** Show the selection column. Defaults to true; when false, click body cells to select rows. */
+  showCheckbox?: boolean;
+}
+
+export interface TableRowNumberConfig {
+  /** Fix the row number column to the left. Defaults to true. */
+  fixed?: boolean;
+}
+
 /**
  * Column definition consumed by both the canvas renderer and DOM editor layer.
  *
@@ -200,7 +210,7 @@ export interface GridColumn<Row> {
   /** Text alignment for body cells and drag previews. */
   align?: 'left' | 'center' | 'right';
   /** Enables double-click / Enter editing when an editor or fallback input exists. */
-  editable?: boolean;
+  editable?: boolean | ((value: unknown, row: Row, rowIndex: number) => boolean);
   /** Built-in editor configuration for text, selectable, date, time, and range cells. */
   editor?:
     | { type: 'text' }
@@ -247,6 +257,33 @@ export interface CellChange<Row> extends GridSelection {
   value: unknown;
   previousValue: unknown;
   row: Row;
+}
+
+/** Data cell identity and content passed to mouse callbacks. */
+export interface TableCellContext<Row> extends GridSelection {
+  row: Row;
+  column: GridColumn<Row>;
+  value: unknown;
+}
+
+/** Imperative Table API. Selection getters reflect the latest committed render. */
+export interface TableRef<Row extends object> {
+  focus: () => void;
+  /** Reveal a data cell without changing selection; false if the target is unavailable. */
+  scrollToCell: (target: GridSelectionTarget) => boolean;
+  getSelectedCell: () => TableCellContext<Row> | null;
+  setSelectedCell: (target: GridSelectionTarget | null) => boolean;
+  getSelectedRowKeys: () => GridKey[];
+  getSelectedRows: () => Row[];
+  setSelectedRowKeys: (keys: GridKey[]) => void;
+  getSelectedColumnKeys: () => string[];
+  setSelectedColumnKeys: (keys: string[]) => void;
+  /** Clear cell, range, row, and column selections. */
+  clearSelection: () => void;
+  /** Select and edit a cell, or edit the current selection. Returns false for invalid or read-only cells. */
+  startEdit: (target?: GridSelectionTarget) => boolean;
+  commitEdit: () => void;
+  cancelEdit: () => void;
 }
 
 /** Fired when the consumer wants to observe or extend a cell context menu. */
@@ -368,13 +405,13 @@ export interface TableProps<Row extends object> {
   /** Show and position the summary row for columns with summary configured. */
   summary?: TableSummaryConfig;
   /** Show an automatically generated row number column on the left. */
-  rowNumber?: boolean;
+  rowNumber?: boolean | TableRowNumberConfig;
   selectedCell?: GridSelectionTarget | null;
   defaultSelectedCell?: GridSelectionTarget | null;
   onSelectedCellChange?: (selection: SelectedCellChange | null) => void;
   /** Enable spreadsheet-style mouse drag selection across multiple body cells. Defaults to false. */
   rangeSelection?: boolean;
-  rowSelection?: boolean | AxisSelectionConfig;
+  rowSelection?: boolean | RowSelectionConfig;
   selectedRowKeys?: GridKey[];
   defaultSelectedRowKeys?: GridKey[];
   onSelectedRowChange?: (keys: GridKey[], rows: Row[], indices: number[]) => void;
@@ -400,6 +437,10 @@ export interface TableProps<Row extends object> {
   /** Overrides the built-in text filtering. Return the rows that match the internally managed filter values. */
   onFilterChange?: (rows: Row[], values: Readonly<Record<string, string>>) => Row[];
   onCellChange?: (change: CellChange<Row>) => void | Promise<void>;
+  /** Fires on a data cell click, before the default selection behavior. */
+  onCellClick?: (cell: TableCellContext<Row>, event: MouseEvent<HTMLElement>) => void;
+  /** Fires before double-click editing. preventDefault() cancels editing. */
+  onCellDoubleClick?: (cell: TableCellContext<Row>, event: MouseEvent<HTMLElement>) => void;
   onCellContextMenu?: (event: ContextMenuEvent<Row>) => void;
   /** true uses the built-in menu, false disables custom menus, object customizes menu content and order. */
   contextMenu?: TableContextMenu<Row>;

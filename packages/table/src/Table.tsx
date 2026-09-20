@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { forwardRef, useImperativeHandle, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ForwardedRef, type ReactElement, type RefAttributes, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { DefaultEmptyState } from './components/EmptyState';
 import { ChoiceEditor } from './components/editors/ChoiceEditor';
@@ -16,7 +16,7 @@ import { getDisplayLabel } from './core/format';
 import { buildColumnMetrics, getHeaderTitleRequiredWidth, getMinimumColumnWidth, getViewportRange, getVisibleHeaderActions, HEADER_ACTION_SLOT_WIDTH, hitTestColumn } from './core/layout';
 import { paintGrid } from './core/render';
 import { useControllableKeys, useControllableValue } from './hooks/useControllable';
-import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, GridSelectionTarget, GridSortState, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableResolvedCellSpan, ViewportRange } from './types';
+import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, GridSelectionTarget, GridSortState, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableRef, TableResolvedCellSpan, ViewportRange } from './types';
 
 interface ScrollPosition { left: number; top: number }
 interface SelectionEdgeIndicator {
@@ -302,7 +302,7 @@ function resolveContextMenuSection<Row, Builtin extends string, Context>(
   return defaults;
 }
 
-export function Table<Row extends object>({
+function TableInner<Row extends object>({
   columns: columnProps,
   rows: sourceRows,
   rowKey,
@@ -348,13 +348,15 @@ export function Table<Row extends object>({
   onSortChange,
   onFilterChange,
   onCellChange,
+  onCellClick,
+  onCellDoubleClick,
   onCellContextMenu,
   contextMenu: contextMenuConfig = true,
   emptyContent,
   className = '',
   style,
   ariaLabel = 'Data grid',
-}: TableProps<Row>) {
+}: TableProps<Row>, ref: ForwardedRef<TableRef<Row>>) {
   const [sourceColumns, setSourceColumns] = useState(columnProps);
   useEffect(() => {
     setSourceColumns((current) => reconcileColumns(current, columnProps));
@@ -404,6 +406,7 @@ export function Table<Row extends object>({
   const customContextMenuConfig = typeof contextMenuConfig === 'object' ? contextMenuConfig : undefined;
   const [resizedColumnWidths, setResizedColumnWidths] = useState<Record<string, number>>({});
   const leafSourceColumns = useMemo(() => flattenDataColumns(sourceColumns), [sourceColumns]);
+  const showRowCheckbox = Boolean(rowSelection) && (typeof rowSelection !== 'object' || rowSelection.showCheckbox !== false);
   useEffect(() => {
     if (!isProductionRuntime() && hasNestedFixedColumns(sourceColumns)) {
       console.warn('[Table] Multi-level headers only support fixed columns on top-level columns. Nested fixed values are ignored.');
@@ -414,19 +417,19 @@ export function Table<Row extends object>({
     if (rowDraggable) {
       utilityColumns.push({ key: '__rvg_row_drag__', title: '', width: 36, align: 'center', fixed: 'left', rowDragHandle: true });
     }
-    if (rowSelection) {
+    if (showRowCheckbox) {
       utilityColumns.push({ key: '__rvg_row_selection__', title: '', width: 44, align: 'center', fixed: 'left', rowSelection: true });
     }
     if (rowNumber) {
-      utilityColumns.push({ key: '__rvg_row_number__', title: '#', width: getRowNumberColumnWidth(sourceRows.length), align: 'center', fixed: 'left', rowNumber: true });
+      utilityColumns.push({ key: '__rvg_row_number__', title: '#', width: getRowNumberColumnWidth(sourceRows.length), align: 'center', fixed: typeof rowNumber === 'object' && rowNumber.fixed === false ? undefined : 'left', rowNumber: true });
     }
     const dataColumns = leafSourceColumns.map((column) => {
       const resizedWidth = resizedColumnWidths[column.key];
       return resizedWidth === undefined ? column : { ...column, width: resizedWidth };
     });
     return [...utilityColumns, ...dataColumns];
-  }, [leafSourceColumns, resizedColumnWidths, rowDraggable, rowNumber, rowSelection, sourceRows.length]);
-  const utilityColumnCount = (rowDraggable ? 1 : 0) + (rowSelection ? 1 : 0) + (rowNumber ? 1 : 0);
+  }, [leafSourceColumns, resizedColumnWidths, rowDraggable, rowNumber, showRowCheckbox, sourceRows.length]);
+  const utilityColumnCount = (rowDraggable ? 1 : 0) + (showRowCheckbox ? 1 : 0) + (rowNumber ? 1 : 0);
   const headerCells = useMemo(() => buildHeaderCells(sourceColumns, utilityColumnCount, headerDepth), [headerDepth, sourceColumns, utilityColumnCount]);
   const activeCustomHeaderLevels = useMemo(() => {
     const levels = new Map<string, number>();
@@ -2422,12 +2425,21 @@ export function Table<Row extends object>({
     scheduleDraw();
   }, [bodyTop, columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, metrics, rightFixedWidth, rowHeight, scheduleDraw, viewport.width]);
 
+  const isCellEditable = useCallback((cell: GridSelection) => {
+    const column = columns[cell.columnIndex];
+    const row = rows[cell.rowIndex];
+    if (!column || !row || column.dataIndex === undefined || column.rowNumber || column.rowSelection || column.rowDragHandle) return false;
+    return typeof column.editable === 'function'
+      ? column.editable(row[column.dataIndex], row, cell.rowIndex)
+      : column.editable === true;
+  }, [columns, rows]);
+
   // Prepare the floating editor for a cell. If the cell is partially offscreen,
   // scroll first and wait two animation frames so editorStyle is calculated from
   // the settled scroll position instead of the old coordinates.
   const beginEdit = useCallback((cell: GridSelection) => {
     const column = columns[cell.columnIndex];
-    if (!column?.editable || column.dataIndex === undefined) return;
+    if (!isCellEditable(cell) || column.dataIndex === undefined) return;
     const value = rows[cell.rowIndex]?.[column.dataIndex];
     setDraft(value == null ? '' : String(value));
     const scroller = scrollerRef.current;
@@ -2472,7 +2484,7 @@ export function Table<Row extends object>({
       return;
     }
     setEditing(cell);
-  }, [columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, metrics, rightFixedWidth, rowHeight, rows, scheduleDraw, viewport.width]);
+  }, [columns, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, isCellEditable, metrics, rightFixedWidth, rowHeight, rows, scheduleDraw, viewport.width]);
 
   const getCellEditKey = (cell: GridSelection) => `${typeof cell.rowKey}:${String(cell.rowKey)}\u0000${cell.columnKey}`;
 
@@ -2506,6 +2518,10 @@ export function Table<Row extends object>({
   // edited cells can be highlighted until they match their original value again.
   const commitEdit = useCallback((nextDraft?: string, close = true) => {
     if (!editing) return;
+    if (!isCellEditable(editing)) {
+      setEditing(null);
+      return;
+    }
     const committedDraft = nextDraft ?? draft;
     const column = columns[editing.columnIndex];
     // Text is the default editor: either configure editor: { type: 'text' } for
@@ -2524,7 +2540,7 @@ export function Table<Row extends object>({
       onCellChange?.({ ...editing, row, value: committedValue, previousValue });
     }
     if (close) setEditing(null);
-  }, [columns, draft, editing, onCellChange, rows]);
+  }, [columns, draft, editing, isCellEditable, onCellChange, rows]);
 
   // Render the appropriate editor for the selected column. Actual editor
   // implementations live in components/editors; the grid only supplies geometry,
@@ -3538,6 +3554,78 @@ export function Table<Row extends object>({
     );
   };
 
+  useImperativeHandle(ref, () => {
+    const resolveDataCell = (target: GridSelectionTarget) => {
+      const cell = resolveSelectionTarget(target);
+      if (!cell) return null;
+      const column = columns[cell.columnIndex];
+      if (column.rowNumber || column.rowSelection || column.rowDragHandle) return null;
+      const span = getCellSpan(cell.rowIndex, cell.columnIndex);
+      if (!span) return cell;
+      return {
+        rowIndex: span.rowIndex,
+        columnIndex: span.columnIndex,
+        rowKey: getRowKey(rows[span.rowIndex], span.rowIndex),
+        columnKey: columns[span.columnIndex].key,
+      };
+    };
+    return {
+      focus: () => scrollerRef.current?.focus({ preventScroll: true }),
+      scrollToCell: (target) => {
+        const cell = resolveDataCell(target);
+        if (!cell) return false;
+        revealCell(cell);
+        return true;
+      },
+      getSelectedCell: () => {
+        if (!selection) return null;
+        const cell = resolveDataCell(selection);
+        if (!cell) return null;
+        const column = columns[cell.columnIndex];
+        const row = rows[cell.rowIndex];
+        return { ...cell, row, column, value: column.dataIndex === undefined ? undefined : row[column.dataIndex] };
+      },
+      setSelectedCell: (target) => {
+        const cell = target === null ? null : resolveDataCell(target);
+        if (target !== null && !cell) return false;
+        setSelectionRange(null);
+        setSelection(cell);
+        return true;
+      },
+      getSelectedRowKeys: () => [...rowKeys],
+      getSelectedRows: () => rows.filter((row, index) => selectedRowKeySet.has(getRowKey(row, index))),
+      setSelectedRowKeys: (keys) => {
+        if (!rowSelection) return;
+        const next = [...new Set(keys)];
+        setRowKeys(rowSelectionMode === 'single' ? next.slice(0, 1) : next);
+      },
+      getSelectedColumnKeys: () => [...columnKeys],
+      setSelectedColumnKeys: (keys) => {
+        if (!columnSelection) return;
+        const next = [...new Set(keys)].filter((key) => columns.some((column) => column.key === key && !column.rowNumber && !column.rowSelection && !column.rowDragHandle));
+        setColumnKeys(typeof columnSelection === 'object' && columnSelection.mode === 'single' ? next.slice(0, 1) : next);
+      },
+      clearSelection: () => {
+        setSelectionRange(null);
+        setSelection(null);
+        setRowKeys([]);
+        setColumnKeys([]);
+        rowAnchorRef.current = null;
+        setEditing(null);
+      },
+      startEdit: (target) => {
+        const cell = target ? resolveDataCell(target) : selection ? resolveDataCell(selection) : null;
+        if (!cell || !isCellEditable(cell)) return false;
+        setSelectionRange(null);
+        setSelection(cell);
+        beginEdit(cell);
+        return true;
+      },
+      commitEdit: () => commitEdit(),
+      cancelEdit: () => setEditing(null),
+    };
+  });
+
   const rootStyle = {
     width,
     height: autoHeight ? effectiveHeight : height,
@@ -3772,6 +3860,10 @@ export function Table<Row extends object>({
             }
             if (event.detail > 1) return;
             clickedCellRef.current = cell;
+            const column = columns[cell.columnIndex];
+            const row = rows[cell.rowIndex];
+            onCellClick?.({ ...cell, row, column, value: column.dataIndex === undefined ? undefined : row[column.dataIndex] }, event);
+            if (event.defaultPrevented) return;
             setSelectionRange(null);
             scrollerRef.current?.focus({ preventScroll: true });
             setSelection(cell);
@@ -3782,7 +3874,12 @@ export function Table<Row extends object>({
           }}
           onDoubleClick={(event) => {
             const cell = clickedCellRef.current ?? locateCell(event.clientX, event.clientY);
-            if (cell) beginEdit(cell);
+            if (!cell) return;
+            const column = columns[cell.columnIndex];
+            if (column.rowNumber || column.rowSelection || column.rowDragHandle) return;
+            const row = rows[cell.rowIndex];
+            onCellDoubleClick?.({ ...cell, row, column, value: column.dataIndex === undefined ? undefined : row[column.dataIndex] }, event);
+            if (!event.defaultPrevented) beginEdit(cell);
           }}
           onContextMenu={handleContextMenu}
         />
@@ -3794,7 +3891,7 @@ export function Table<Row extends object>({
               style={{ left: -fixedWidth, width: contentWidth, transform: `translateX(${-currentScroll.left}px)` }}
             >
               {columns.map((column, columnIndex) => (
-                column.fixed || columnIndex < utilityColumnCount || headerDepth > 1 ? null : (
+                column.fixed || (columnIndex >= utilityColumnCount && headerDepth > 1) ? null : (
                   columnIndex >= domRange.columnStart && columnIndex < domRange.columnEnd
                     ? <span key={column.key}>{renderHeaderTitle(columnIndex, getScrollableColumnLeft(columnIndex))}</span>
                     : null
@@ -3823,7 +3920,7 @@ export function Table<Row extends object>({
             }))}
           </div>
           {columns.map((column, columnIndex) => (
-            columnIndex < utilityColumnCount || (headerDepth === 1 && (column.fixed === 'left' || column.fixed === 'right'))
+            column.fixed && (columnIndex < utilityColumnCount || headerDepth === 1)
               ? renderHeaderTitle(columnIndex, column.fixed === 'right' ? viewport.width - (rightFixedOffsets.get(columnIndex) ?? 0) - metrics[columnIndex].width : column.fixed === 'left' ? leftFixedOffsets.get(columnIndex) ?? 0 : getScrollableColumnLeft(columnIndex))
               : null
           ))}
@@ -4048,7 +4145,7 @@ export function Table<Row extends object>({
             const affectedRows = selectedIndices.includes(cell.rowIndex) ? selectedIndices : [cell.rowIndex];
             const cellContext: CellContextMenuContext<Row> = { ...cell, row, column, value: dataIndex === undefined ? undefined : row[dataIndex] };
             return renderConfiguredContextMenu(resolveContextMenuSection(customContextMenuConfig?.cell, DEFAULT_CELL_CONTEXT_MENU), cellContext, (item, override) => {
-              if (item === 'edit') return renderContextMenuButton('cell-edit', cellContext, labels.edit, () => beginEdit(cell), override, { disabled: !column.editable, icon: <ContextMenuIcon type="edit" /> });
+              if (item === 'edit') return renderContextMenuButton('cell-edit', cellContext, labels.edit, () => beginEdit(cell), override, { disabled: !isCellEditable(cell), icon: <ContextMenuIcon type="edit" /> });
               if (item === 'copy') return renderContextMenuButton('cell-copy', cellContext, labels.copyContent, async () => {
                 try {
                   await navigator.clipboard.writeText(getCellLabel(cell.rowIndex, cell.columnIndex));
@@ -4306,3 +4403,8 @@ export function Table<Row extends object>({
     </div>
   );
 }
+
+// Preserve row inference for generic JSX while supporting refs in React 18+.
+export const Table = forwardRef(TableInner) as <Row extends object>(
+  props: TableProps<Row> & RefAttributes<TableRef<Row>>,
+) => ReactElement;
