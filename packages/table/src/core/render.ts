@@ -379,7 +379,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
           ctx.beginPath();
           ctx.rect(x + 2, y + 1, Math.max(0, cellWidth - 4), cellHeight - 2);
           ctx.clip();
-          ctx.fillStyle = cellStyle?.color ?? colors.text;
+          ctx.fillStyle = column.rowNumber && selectedRowKeys.has(rowKey)
+            ? colors.selection
+            : cellStyle?.color ?? colors.text;
           ctx.font = createCellFont(bodyFontSize);
           ctx.textBaseline = 'alphabetic';
           ctx.textAlign = column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left';
