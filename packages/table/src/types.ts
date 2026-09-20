@@ -389,6 +389,8 @@ export interface TableProps<Row extends object> {
   borderless?: boolean;
   /** @deprecated Use borderless instead. */
   verticalBorderless?: boolean;
+  /** Hide horizontal row and frame separators while keeping vertical grid lines. */
+  horizontalBorderless?: boolean;
   /** Paint alternating row backgrounds. Pass a color string to customize the stripe color. */
   striped?: boolean | string;
   /** Visual highlight feedback configuration. All entries default to false. */

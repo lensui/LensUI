@@ -19,6 +19,14 @@ afterEach(() => {
 });
 
 describe('Table utility column options', () => {
+  it('controls horizontal separators independently from vertical borders and stripes', () => {
+    const view = render(<Table columns={columns} rows={rows} horizontalBorderless striped />);
+    const root = view.container.querySelector('.rvg-root')!;
+    expect(root.classList.contains('is-horizontal-borderless')).toBe(true);
+    expect(root.classList.contains('is-vertical-borderless')).toBe(false);
+    expect(root.classList.contains('is-striped')).toBe(true);
+  });
+
   it('moves the row number header into the scrolling layer and can fix or hide it again', () => {
     const view = render(<Table columns={columns} rows={rows} rowSelection />);
     expect(view.getByRole('grid').getAttribute('aria-colcount')).toBe('3');
@@ -175,6 +183,24 @@ describe('Table ref', () => {
     expect(ref.current!.getSelectedColumnKeys()).toEqual([]);
     view.unmount();
     expect(ref.current).toBeNull();
+  });
+
+  it.each(['left', 'center', 'right'] as const)('preserves %s alignment when row height changes during editing', (align) => {
+    const ref = createRef<TableRef<(typeof rows)[number]>>();
+    const editableColumns = [{ ...columns[0], width: 180, editable: true, align }];
+    const view = render(<Table ref={ref} columns={editableColumns} rows={rows} rowHeight={36} />);
+    act(() => ref.current!.startEdit({ rowKey: 1, columnKey: 'name' }));
+    const input = view.getByRole('textbox') as HTMLInputElement;
+    const editor = input.parentElement!;
+    const left = editor.style.left;
+    const width = editor.style.width;
+    expect(input.style.textAlign).toBe(align);
+    expect(editor.style.height).toBe('36px');
+    view.rerender(<Table ref={ref} columns={editableColumns} rows={rows} rowHeight={57} />);
+    expect(editor.style.height).toBe('57px');
+    expect(editor.style.left).toBe(left);
+    expect(editor.style.width).toBe(width);
+    expect(input.style.textAlign).toBe(align);
   });
 
   it('supports editing and uses updated row data and permissions', () => {

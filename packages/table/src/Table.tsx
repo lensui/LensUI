@@ -316,6 +316,7 @@ function TableInner<Row extends object>({
   locale = 'zh-CN',
   borderless,
   verticalBorderless,
+  horizontalBorderless = false,
   striped = false,
   highlight,
   cellSpans = [],
@@ -1134,8 +1135,8 @@ function TableInner<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
-  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
+  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -2687,11 +2688,23 @@ function TableInner<Row extends object>({
     const visibleRight = Math.min(cellLeft + cellWidth, horizontalEnd, viewport.width);
     const visibleTop = Math.max(cellTop, verticalStart);
     const visibleBottom = Math.min(cellTop + cellHeight, renderHeight);
+    // Popover editors keep their own layout; plain inputs retain the complete
+    // cell box so clipping cannot change the text's alignment or vertical center.
+    if (column.editor && column.editor.type !== 'text') {
+      return {
+        left: visibleLeft,
+        top: visibleTop,
+        width: Math.max(0, visibleRight - visibleLeft),
+        height: Math.max(0, visibleBottom - visibleTop),
+      };
+    }
     return {
-      left: visibleLeft,
-      top: visibleTop,
-      width: Math.max(0, visibleRight - visibleLeft),
-      height: Math.max(0, visibleBottom - visibleTop),
+      left: cellLeft,
+      top: cellTop,
+      width: cellWidth,
+      height: cellHeight,
+      textAlign: column.align ?? 'left',
+      clipPath: `inset(${Math.max(0, visibleTop - cellTop)}px ${Math.max(0, cellLeft + cellWidth - visibleRight)}px ${Math.max(0, cellTop + cellHeight - visibleBottom)}px ${Math.max(0, visibleLeft - cellLeft)}px)`,
     };
   }, [bodyTop, columns, editing, fixedHeader, fixedWidth, getCellDisplayWidth, getCellSpan, getScrollableColumnLeft, leftFixedOffsets, metrics, renderHeight, rightFixedOffsets, rightFixedWidth, rowHeight, viewport.width]);
 
@@ -3672,7 +3685,7 @@ function TableInner<Row extends object>({
   const scrollerBottom = Math.max(0, bottomSummaryHeight - horizontalScrollbarHeight);
 
   return (
-    <div className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
+    <div className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
       <div ref={scrollerRef} className={`rvg-scroller${contextMenu ? ' is-context-menu-open' : ''}`} style={{ bottom: scrollerBottom }} onScroll={handleScroll} onCopy={handleCopy} onContextMenu={handleContextMenu} tabIndex={0} role="grid" aria-label={ariaLabel} aria-rowcount={rows.length} aria-colcount={columns.length} onKeyDown={handleKeyDown}>
         <canvas
           ref={canvasRef}
