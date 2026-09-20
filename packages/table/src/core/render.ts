@@ -29,6 +29,7 @@ interface PaintOptions<Row extends object> {
   verticalBorderless: boolean;
   horizontalBorderless: boolean;
   frameBorderless: boolean;
+  extendVerticalGridLines: boolean;
   striped: boolean;
   columnDraggable: boolean;
   sortState: GridSortState | null;
@@ -104,7 +105,7 @@ function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth
  * datasets cheap to scroll because only the visible viewport is painted.
  */
 export function paintGrid<Row extends object>(options: PaintOptions<Row>): void {
-  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, fixedHeader, verticalBorderless, horizontalBorderless, frameBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
+  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, fixedHeader, verticalBorderless, horizontalBorderless, frameBorderless, extendVerticalGridLines, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
   const headerLeafTop = options.headerLeafTop ?? 0;
   const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
@@ -404,6 +405,31 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   paintBodyColumns('scroll');
   paintBodyColumns('left');
   paintBodyColumns('right');
+
+  if (extendVerticalGridLines && !verticalBorderless) {
+    const extensionTop = Math.max(bodyTop, Math.min(height, bodyTop + rows.length * rowHeight - scrollTop));
+    const extensionHeight = Math.max(0, height - extensionTop);
+    const paintExtendedColumnLines = (layer: 'scroll' | 'left' | 'right') => {
+      ctx.save();
+      if (layer === 'scroll') {
+        ctx.beginPath();
+        ctx.rect(leftFixedWidth, extensionTop, Math.max(0, rightFixedLeft - leftFixedWidth), extensionHeight);
+        ctx.clip();
+      }
+      ctx.fillStyle = colors.grid;
+      for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+        if (layer === 'scroll' ? columns[columnIndex].fixed !== undefined : columns[columnIndex].fixed !== layer) continue;
+        if (layer === 'scroll' && (columnIndex < range.columnStart || columnIndex >= range.columnEnd)) continue;
+        if (frameBorderless && columnIndex === columns.length - 1) continue;
+        const x = getColumnX(columnIndex) + metrics[columnIndex].width - 1;
+        ctx.fillRect(x, extensionTop, 1, extensionHeight);
+      }
+      ctx.restore();
+    };
+    paintExtendedColumnLines('scroll');
+    paintExtendedColumnLines('left');
+    paintExtendedColumnLines('right');
+  }
 
   const headerY = fixedHeader ? 0 : -scrollTop;
   ctx.fillStyle = colors.header;
