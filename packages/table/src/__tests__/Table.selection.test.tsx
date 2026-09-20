@@ -225,3 +225,60 @@ describe('Table ref', () => {
     expect(ref.current!.getSelectedCell()).toBeNull();
   });
 });
+
+describe('Table auto height CSS limits', () => {
+  it('keeps the configured limit after headers and rows grow', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      // A 500px parent resolves percentage height; the scroller sees the
+      // current (possibly already shrunken) root height instead.
+      if (this.classList.contains('rvg-root')) return this.style.height === '100%' ? 500 : parseFloat(this.style.height) || 0;
+      if (this.classList.contains('rvg-scroller')) return parseFloat(this.parentElement!.style.height) || 0;
+      return 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(48);
+    const initialColumns = [{ ...columns[0], width: 200 }];
+    const view = render(<Table height="100%" columns={initialColumns} rows={rows} layout={{ headerHeight: 56, rowHeight: 30 }} />);
+    const root = view.container.querySelector<HTMLElement>('.rvg-root')!;
+    expect(root.style.height).toBe('146px');
+    const customColumns = [{ ...initialColumns[0], renderHeader: () => <div>Name<br />Type<br />Comment</div> }];
+    view.rerender(<Table height="100%" columns={customColumns} rows={rows} layout={{ headerHeight: 56, rowHeight: 30 }} />);
+    expect(root.style.height).toBe('154px');
+    const manyRows = Array.from({ length: 1000 }, (_, id) => ({ id, name: String(id) }));
+    view.rerender(<Table height="100%" columns={customColumns} rows={manyRows} layout={{ headerHeight: 56, rowHeight: 30 }} />);
+    expect(root.style.height).toBe('500px');
+    view.rerender(<Table height="100%" columns={customColumns} rows={rows} layout={{ headerHeight: 56, rowHeight: 30 }} />);
+    expect(root.style.height).toBe('154px');
+  });
+
+  it('remeasures a resized parent and disconnects its observer on unmount', () => {
+    let available = 500;
+    const observers: { callback: ResizeObserverCallback; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      constructor(public callback: ResizeObserverCallback) { observers.push(this); }
+    });
+    try {
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains('rvg-root')) return this.style.height === '100%' ? available : parseFloat(this.style.height) || 0;
+        return parseFloat(this.parentElement?.style.height ?? '') || 0;
+      });
+      const view = render(<div><Table height="100%" columns={columns} rows={rows} layout={{ headerHeight: 56, rowHeight: 30 }} /></div>);
+      const root = view.container.querySelector<HTMLElement>('.rvg-root')!;
+      const observer = observers.find((item) => item.observe.mock.calls.some(([element]) => element === root.parentElement))!;
+      expect(observer).toBeDefined();
+      expect(root.style.height).toBe('146px');
+      available = 100;
+      act(() => observer.callback([], observer as unknown as ResizeObserver));
+      expect(root.style.height).toBe('100px');
+      available = 600;
+      act(() => observer.callback([], observer as unknown as ResizeObserver));
+      expect(root.style.height).toBe('146px');
+      view.unmount();
+      expect(observer.disconnect).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

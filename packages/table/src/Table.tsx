@@ -512,7 +512,8 @@ function TableInner<Row extends object>({
   // pointer handlers before React has committed the next render.
   const [viewport, setViewport] = useState({ width: 0, height: typeof height === 'number' ? height : FALLBACK_HEIGHT });
   const [horizontalScrollbarHeight, setHorizontalScrollbarHeight] = useState(0);
-  const resolvedHeight = typeof height === 'number' ? height : viewport.height || FALLBACK_HEIGHT;
+  const [availableHeight, setAvailableHeight] = useState(FALLBACK_HEIGHT);
+  const resolvedHeight = typeof height === 'number' ? height : availableHeight;
   const [scrollPosition, setScrollPosition] = useState<ScrollPosition>({ left: 0, top: 0 });
   const scrollRef = useRef<ScrollPosition>({ left: 0, top: 0 });
 
@@ -1313,7 +1314,18 @@ function TableInner<Row extends object>({
   useLayoutEffect(() => {
     const element = scrollerRef.current;
     if (!element) return;
+    const root = element.parentElement;
     const update = () => {
+      if (root && typeof height !== 'number') {
+        // Resolve the requested CSS height independently of the auto-height
+        // result. Measuring the shrunken scroller feeds its old height back
+        // into the limit, preventing header/row growth and parent resizing.
+        const renderedHeight = root.style.height;
+        root.style.height = height;
+        const nextAvailableHeight = root.clientHeight || FALLBACK_HEIGHT;
+        root.style.height = renderedHeight;
+        setAvailableHeight(nextAvailableHeight);
+      }
       const measuredHeight = element.clientHeight || (typeof height === 'number' ? height : FALLBACK_HEIGHT);
       setViewport({ width: element.clientWidth, height: measuredHeight });
       setHorizontalScrollbarHeight(Math.max(0, element.offsetHeight - element.clientHeight));
@@ -1325,6 +1337,7 @@ function TableInner<Row extends object>({
     }
     const observer = new ResizeObserver(update);
     observer.observe(element);
+    if (root?.parentElement) observer.observe(root.parentElement);
     return () => observer.disconnect();
   }, [height]);
 
