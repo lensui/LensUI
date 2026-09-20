@@ -77,8 +77,14 @@ export function getHeaderTitleRequiredWidth<Row>(column: LayoutColumn<Row>, titl
  * edge of the header. When space is tight we keep the last actions from the
  * candidate list so the clickable positions remain stable while resizing.
  */
-export function getVisibleHeaderActions<Row>(column: LayoutColumn<Row>, width: number, columnDraggable = false, titleWidth = 26) {
-  const capacity = Math.max(0, Math.floor((width - getHeaderTitleRequiredWidth(column, titleWidth)) / HEADER_ACTION_SLOT_WIDTH));
+export function getVisibleHeaderActions<Row>(
+  column: LayoutColumn<Row>,
+  width: number,
+  columnDraggable = false,
+  titleWidth = 26,
+  actionSlotWidth = HEADER_ACTION_SLOT_WIDTH,
+) {
+  const capacity = Math.max(0, Math.floor((width - getHeaderTitleRequiredWidth(column, titleWidth)) / actionSlotWidth));
   const candidates = [
     isColumnFilterable(column) ? 'filter' as const : null,
     isColumnSortable(column) ? 'sort' as const : null,

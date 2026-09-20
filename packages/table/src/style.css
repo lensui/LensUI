@@ -169,6 +169,7 @@
 .rvg-selection-edge-target:focus-visible { outline: 2px solid rgba(22, 119, 255, 0.28); outline-offset: -2px; }
 .rvg-header-title { z-index: 1; color: var(--rvg-color-muted); font-weight: 600; }
 .rvg-header-group { z-index: 3; border-right: 1px solid var(--rvg-color-grid); border-bottom: 1px solid var(--rvg-color-grid); background: var(--rvg-color-header-bg); box-sizing: border-box; }
+.rvg-root.is-frame-borderless .rvg-header-group.is-frame-right { border-right: 0; }
 .rvg-root.is-horizontal-borderless .rvg-header-group { border-bottom: 0; }
 .rvg-header-group.is-leaf { z-index: 2; }
 .rvg-header-title.is-drop-target { background: var(--rvg-color-column-drop-target-fill); }
@@ -178,11 +179,12 @@
 .rvg-text-fixed-border { position: absolute; z-index: 5; top: 0; bottom: 0; width: 1px; background: var(--rvg-color-grid); pointer-events: none; }
 .rvg-header-icons { position: absolute; z-index: 2; top: 0; right: 0; left: 0; overflow: hidden; pointer-events: none; }
 .rvg-header-icons::after { position: absolute; z-index: 3; top: 0; right: 0; bottom: 0; width: 1px; background: var(--rvg-color-grid); content: ''; pointer-events: none; }
+.rvg-root.is-frame-borderless .rvg-header-icons::after { display: none; }
 .rvg-root.is-vertical-borderless .rvg-header-icons::after { display: none; }
 .rvg-header-scroll-clip { position: absolute; top: 0; bottom: 0; overflow: hidden; }
 .rvg-header-icon-layer { position: absolute; inset: 0; }
 .rvg-header-icon-layer-scroll { right: auto; will-change: transform; }
-.rvg-header-icon { position: absolute; width: 14px; height: 14px; overflow: visible; color: var(--rvg-color-icon); }
+.rvg-header-icon { position: absolute; width: var(--rvg-header-action-size, 14px); height: var(--rvg-header-action-size, 14px); overflow: visible; color: var(--rvg-color-icon); }
 .rvg-header-icon.is-hovered { color: var(--rvg-color-muted); }
 .rvg-root.is-initial-loading .rvg-header-icon { color: #d6dbe0; animation: rvg-loading-icon-pulse 1.15s ease-in-out infinite alternate; }
 .rvg-header-icon path,

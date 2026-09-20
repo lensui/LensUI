@@ -13,7 +13,7 @@ import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-d
 import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview';
 import { attachClosestEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
 import { getDisplayLabel } from './core/format';
-import { buildColumnMetrics, getHeaderTitleRequiredWidth, getMinimumColumnWidth, getViewportRange, getVisibleHeaderActions, HEADER_ACTION_SLOT_WIDTH, hitTestColumn } from './core/layout';
+import { buildColumnMetrics, getHeaderTitleRequiredWidth, getMinimumColumnWidth, getViewportRange, getVisibleHeaderActions, hitTestColumn } from './core/layout';
 import { paintGrid } from './core/render';
 import { useControllableKeys, useControllableValue } from './hooks/useControllable';
 import type { CellContextMenuBuiltin, CellContextMenuContext, ContextMenuItem, ContextMenuSection, CustomContextMenuItem, GridColumn, GridKey, GridSelection, GridSelectionTarget, GridSortState, HeaderContextMenuBuiltin, HeaderContextMenuContext, RangeContextMenuBuiltin, RangeContextMenuContext, TableCellSpan, TableProps, TableRef, TableResolvedCellSpan, ViewportRange } from './types';
@@ -322,6 +322,7 @@ function TableInner<Row extends object>({
   borderless,
   verticalBorderless,
   horizontalBorderless = false,
+  frameBorderless = false,
   striped = false,
   highlight,
   cellSpans = [],
@@ -368,6 +369,8 @@ function TableInner<Row extends object>({
     setSourceColumns((current) => reconcileColumns(current, columnProps));
   }, [columnProps]);
   const rowHeight = layout?.rowHeight ?? rowHeightProp ?? 36;
+  const headerActionSize = Math.max(8, layout?.headerActionSize ?? 14);
+  const headerActionSlotWidth = headerActionSize + 2;
   const baseHeaderHeight = layout?.headerHeight ?? headerHeightProp ?? 40;
   const headerDepth = useMemo(() => Math.max(1, ...sourceColumns.map(getColumnDepth)), [sourceColumns]);
   const { language, labels } = useMemo(() => resolveGridLocale(locale), [locale]);
@@ -1141,8 +1144,8 @@ function TableInner<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, bodyFontSize, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
-  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, getRowKey, hasStripedRows, hasVerticalBorders, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, frameBorderless, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
+  }, [bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, frameBorderless, getRowKey, hasStripedRows, hasVerticalBorders, headerActionSlotWidth, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -1762,15 +1765,15 @@ function TableInner<Row extends object>({
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
     const localX = clientX - canvasRef.current.getBoundingClientRect().left;
     const columnRight = getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width;
-    const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-    let right = columnRight - (visibleActions.drag ? HEADER_ACTION_SLOT_WIDTH : 2);
+    const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
+    let right = columnRight - (visibleActions.drag ? headerActionSlotWidth : 2);
     if (visibleActions.sort) {
-      if (localX >= right - HEADER_ACTION_SLOT_WIDTH && localX < right) return 'sort';
-      right -= HEADER_ACTION_SLOT_WIDTH;
+      if (localX >= right - headerActionSlotWidth && localX < right) return 'sort';
+      right -= headerActionSlotWidth;
     }
-    if (visibleActions.filter && localX >= right - HEADER_ACTION_SLOT_WIDTH && localX < right) return 'filter';
+    if (visibleActions.filter && localX >= right - headerActionSlotWidth && localX < right) return 'filter';
     return null;
-  }, [columnDraggable, columns, getDisplayedColumnLeft, measureHeaderTitleWidth, metrics]);
+  }, [columnDraggable, columns, getDisplayedColumnLeft, headerActionSlotWidth, measureHeaderTitleWidth, metrics]);
 
   const isHeaderTitleTruncated = useCallback((columnIndex: number): boolean => {
     const canvas = canvasRef.current;
@@ -1778,20 +1781,20 @@ function TableInner<Row extends object>({
     const column = columns[columnIndex];
     const metric = metrics[columnIndex];
     const titleWidth = measureHeaderTitleWidth(columnIndex);
-    const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth);
-    const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH;
+    const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth, headerActionSlotWidth);
+    const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth;
     return getHeaderTitleRequiredWidth(column, titleWidth) > Math.max(0, metric.width - actionWidth);
-  }, [columnDraggable, columns, measureHeaderTitleWidth, metrics]);
+  }, [columnDraggable, columns, headerActionSlotWidth, measureHeaderTitleWidth, metrics]);
 
   const locateHeaderDragHandle = useCallback((clientX: number, columnIndex: number): boolean => {
     if (!columnDraggable || columnIndex < 0 || !canvasRef.current) return false;
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return false;
-    if (!getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex)).drag) return false;
+    if (!getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth).drag) return false;
     const localX = clientX - canvasRef.current.getBoundingClientRect().left;
     const columnRight = getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width;
-    return localX >= columnRight - 16 && localX < columnRight - 5;
-  }, [columnDraggable, columns, getDisplayedColumnLeft, measureHeaderTitleWidth, metrics]);
+    return localX >= columnRight - headerActionSlotWidth && localX < columnRight - 2;
+  }, [columnDraggable, columns, getDisplayedColumnLeft, headerActionSlotWidth, measureHeaderTitleWidth, metrics]);
 
   const getHeaderCellLeft = useCallback((cell: HeaderCell<Row>) => {
     const startMetric = metrics[cell.startIndex];
@@ -1879,8 +1882,8 @@ function TableInner<Row extends object>({
     if (cell.leaf) return locateHeaderDragHandle(clientX, cell.startIndex);
     const localX = clientX - canvasRef.current.getBoundingClientRect().left;
     const right = getHeaderCellLeft(cell) + getHeaderCellWidth(cell);
-    return localX >= right - 16 && localX < right - 5;
-  }, [columnDraggable, getHeaderCellLeft, getHeaderCellWidth, locateHeaderDragHandle]);
+    return localX >= right - headerActionSlotWidth && localX < right - 2;
+  }, [columnDraggable, getHeaderCellLeft, getHeaderCellWidth, headerActionSlotWidth, locateHeaderDragHandle]);
 
   const locateHeaderCell = useCallback((clientX: number, clientY: number): HeaderCell<Row> | null => {
     const canvas = canvasRef.current;
@@ -2055,26 +2058,32 @@ function TableInner<Row extends object>({
             header.style.height = `${headerHeight}px`;
             header.style.justifyContent = column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start';
             header.textContent = column.title;
-            const visibleActions = getVisibleHeaderActions(column, columnWidth, columnDraggable, measureHeaderTitleWidth(sourceIndex));
+            const visibleActions = getVisibleHeaderActions(column, columnWidth, columnDraggable, measureHeaderTitleWidth(sourceIndex), headerActionSlotWidth);
             let actionRight = 2;
             if (visibleActions.drag) {
               const icon = createHeaderDragHandleSvg();
               icon.classList.add('rvg-preview-header-icon');
+              icon.style.width = `${headerActionSize}px`;
+              icon.style.height = `${headerActionSize}px`;
               icon.style.right = `${actionRight}px`;
               header.appendChild(icon);
-              actionRight += HEADER_ACTION_SLOT_WIDTH;
+              actionRight += headerActionSlotWidth;
             }
             if (visibleActions.sort) {
               const direction = sortState?.columnKey === column.key ? sortState.direction : null;
               const icon = createHeaderSortSvg(direction);
               icon.classList.add('rvg-preview-header-icon');
+              icon.style.width = `${headerActionSize}px`;
+              icon.style.height = `${headerActionSize}px`;
               icon.style.right = `${actionRight}px`;
               header.appendChild(icon);
-              actionRight += HEADER_ACTION_SLOT_WIDTH;
+              actionRight += headerActionSlotWidth;
             }
             if (visibleActions.filter) {
               const icon = createHeaderSearchSvg(Boolean(filterValues[column.key]));
               icon.classList.add('rvg-preview-header-icon', 'rvg-preview-header-search-icon');
+              icon.style.width = `${headerActionSize}px`;
+              icon.style.height = `${headerActionSize}px`;
               icon.style.right = `${actionRight}px`;
               header.appendChild(icon);
             }
@@ -2301,7 +2310,7 @@ function TableInner<Row extends object>({
       cleanupDrag();
       cleanupDrop();
     };
-  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, filterValues, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerCells, headerHeight, hideDragTooltips, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, measureHeaderTitleWidth, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, selection, setDragGuide, setRowDragGuide, sortState, utilityColumnCount]);
+  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, filterValues, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerActionSize, headerActionSlotWidth, headerCells, headerHeight, hideDragTooltips, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, measureHeaderTitleWidth, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, selection, setDragGuide, setRowDragGuide, sortState, utilityColumnCount]);
 
   // Convert a viewport pointer coordinate into a grid cell identity. This is
   // the shared hit-test path for hover tooltips, selection, range dragging,
@@ -2816,28 +2825,28 @@ function TableInner<Row extends object>({
   const renderHeaderIcons = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
-    const top = headerLeafTop + (headerLeafHeight - 14) / 2;
-    const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-    let right = left + metrics[columnIndex].width - (visibleActions.drag ? HEADER_ACTION_SLOT_WIDTH : 2);
+    const top = headerLeafTop + (headerLeafHeight - headerActionSize) / 2;
+    const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
+    let right = left + metrics[columnIndex].width - (visibleActions.drag ? headerActionSlotWidth : 2);
     const icons = [];
     if (visibleActions.drag) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'drag';
       icons.push(
-        <HeaderDragIcon key="drag" className={`rvg-header-icon rvg-header-drag-icon${hovered ? ' is-hovered' : ''}`} style={{ left: left + metrics[columnIndex].width - 16, top }} />,
+        <HeaderDragIcon key="drag" className={`rvg-header-icon rvg-header-drag-icon${hovered ? ' is-hovered' : ''}`} style={{ left: left + metrics[columnIndex].width - headerActionSlotWidth, top }} />,
       );
     }
     if (visibleActions.sort) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'sort';
       const direction = sortState?.columnKey === column.key ? sortState.direction : null;
       icons.push(
-        <HeaderSortIcon key="sort" className={`rvg-header-icon${hovered ? ' is-hovered' : ''}`} style={{ left: right - 16, top }} direction={direction} />,
+        <HeaderSortIcon key="sort" className={`rvg-header-icon${hovered ? ' is-hovered' : ''}`} style={{ left: right - headerActionSlotWidth, top }} direction={direction} />,
       );
-      right -= HEADER_ACTION_SLOT_WIDTH;
+      right -= headerActionSlotWidth;
     }
     if (visibleActions.filter) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'filter';
       icons.push(
-        <HeaderSearchIcon key="filter" className={`rvg-header-icon rvg-header-search-icon${hovered ? ' is-hovered' : ''}${filterValues[column.key] ? ' is-active' : ''}`} style={{ left: right - 16, top: top + 1 }} />,
+        <HeaderSearchIcon key="filter" className={`rvg-header-icon rvg-header-search-icon${hovered ? ' is-hovered' : ''}${filterValues[column.key] ? ' is-active' : ''}`} style={{ left: right - headerActionSlotWidth, top: top + 1 }} />,
       );
     }
     return icons;
@@ -2860,11 +2869,11 @@ function TableInner<Row extends object>({
       if (context) context.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
       const titleWidth = context?.measureText(column.title).width ?? column.title.length * 13;
       const visibleActions = cell?.leaf || !cell
-        ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth)
+        ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth, headerActionSlotWidth)
         : null;
       const actionWidth = visibleActions
-        ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH
-        : columnDraggable ? HEADER_ACTION_SLOT_WIDTH : 0;
+        ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth
+        : columnDraggable ? headerActionSlotWidth : 0;
       const contentWidth = Math.max(0, cellWidth - actionWidth);
       const maxTextWidth = Math.max(0, contentWidth - 20);
       const textWidth = Math.min(titleWidth, maxTextWidth);
@@ -2885,12 +2894,17 @@ function TableInner<Row extends object>({
     } else if (action === 'sort') {
       const direction = sortState?.columnKey === column.key ? sortState.direction : null;
       label = direction === 'asc' ? labels.sortAsc : direction === 'desc' ? labels.sortDesc : labels.sortBoth;
-      anchorX = cellLeft + cellWidth - 22;
+      const visibleActions = getVisibleHeaderActions(column, cellWidth, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
+      const right = cellLeft + cellWidth - (visibleActions.drag ? headerActionSlotWidth : 2);
+      anchorX = right - headerActionSlotWidth / 2;
       anchorLeft = anchorX;
     } else if (action === 'filter') {
       const value = filterValues[column.key];
       label = value ? labels.filterWithValue(value) : labels.filter;
-      anchorX = cellLeft + cellWidth - 40;
+      const visibleActions = getVisibleHeaderActions(column, cellWidth, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
+      let right = cellLeft + cellWidth - (visibleActions.drag ? headerActionSlotWidth : 2);
+      if (visibleActions.sort) right -= headerActionSlotWidth;
+      anchorX = right - headerActionSlotWidth / 2;
       anchorLeft = anchorX;
     }
     const placement: 'left' | 'right' = anchorX + 328 > viewport.width ? 'left' : 'right';
@@ -2903,7 +2917,7 @@ function TableInner<Row extends object>({
       label,
       placement,
     };
-  }, [baseHeaderHeight, columnDraggable, columns, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerDepth, headerRowHeights, headerRowOffsets, labels, metrics, scrollPosition.top, sortState, viewport.width]);
+  }, [baseHeaderHeight, columnDraggable, columns, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerActionSlotWidth, headerDepth, headerRowHeights, headerRowOffsets, labels, measureHeaderTitleWidth, metrics, scrollPosition.top, sortState, viewport.width]);
 
   const isPointerOnHeaderTitle = useCallback((clientX: number, clientY: number, cell: HeaderCell<Row>) => {
     const canvas = canvasRef.current;
@@ -2919,11 +2933,11 @@ function TableInner<Row extends object>({
     if (context) context.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
     const titleWidth = context?.measureText(column.title).width ?? column.title.length * 13;
     const visibleActions = cell.leaf
-      ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth)
+      ? getVisibleHeaderActions(column, cellWidth, columnDraggable, titleWidth, headerActionSlotWidth)
       : null;
     const actionWidth = visibleActions
-      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH
-      : columnDraggable ? HEADER_ACTION_SLOT_WIDTH : 0;
+      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth
+      : columnDraggable ? headerActionSlotWidth : 0;
     const contentWidth = Math.max(0, cellWidth - actionWidth);
     const textWidth = Math.min(titleWidth, Math.max(0, contentWidth - 20));
     const textLeft = column.align === 'right'
@@ -2933,7 +2947,7 @@ function TableInner<Row extends object>({
         : cellLeft + 10;
     const textTop = rowTop + 8;
     return localX >= textLeft - 4 && localX <= textLeft + textWidth + 4 && localY >= textTop - 2 && localY <= textTop + 18;
-  }, [columnDraggable, fixedHeader, getHeaderCellLeft, getHeaderCellWidth, headerRowOffsets]);
+  }, [columnDraggable, fixedHeader, getHeaderCellLeft, getHeaderCellWidth, headerActionSlotWidth, headerRowOffsets]);
 
   const headerTooltip = (() => {
     if (!visibleHeaderTooltip) return null;
@@ -3275,8 +3289,8 @@ function TableInner<Row extends object>({
       );
     }
     if (column.renderHeader) {
-      const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex));
-      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH;
+      const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
+      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth;
       return (
         <div
           key={column.key}
@@ -3326,18 +3340,18 @@ function TableInner<Row extends object>({
       ? startMetric.width
       : getCellDisplayWidth(cell.startIndex, cell.endIndex - cell.startIndex + 1);
     const visibleActions = cell.leaf
-      ? getVisibleHeaderActions(column, startMetric.width, columnDraggable, measureHeaderTitleWidth(cell.startIndex))
+      ? getVisibleHeaderActions(column, startMetric.width, columnDraggable, measureHeaderTitleWidth(cell.startIndex), headerActionSlotWidth)
       : null;
     const actionWidth = visibleActions
-      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH
-      : columnDraggable && !cell.leaf ? HEADER_ACTION_SLOT_WIDTH : 0;
+      ? (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth
+      : columnDraggable && !cell.leaf ? headerActionSlotWidth : 0;
     const isDropTarget = Boolean(columnDropTarget
       && cell.endIndex >= columnDropTarget.startIndex
       && cell.startIndex <= columnDropTarget.endIndex);
     return (
       <div
         key={`group:${cell.key}:${cell.level}`}
-        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}${cell.endIndex === columns.length - 1 ? ' is-frame-right' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
         data-level={cell.level}
         data-measure-key={`group:${cell.key}:${cell.level}`}
         style={{
@@ -3365,7 +3379,7 @@ function TableInner<Row extends object>({
         {!cell.leaf && columnDraggable && (
           <HeaderDragIcon
             className={`rvg-header-icon rvg-header-drag-icon${hoveredHeaderAction?.columnIndex === cell.startIndex && hoveredHeaderAction.action === 'drag' ? ' is-hovered' : ''}`}
-            style={{ left: width - 16, top: (rowHeightForLevel - 14) / 2 }}
+            style={{ left: width - headerActionSlotWidth, top: (rowHeightForLevel - headerActionSize) / 2 }}
           />
         )}
       </div>
@@ -3684,6 +3698,7 @@ function TableInner<Row extends object>({
     width,
     height: autoHeight ? effectiveHeight : height,
     minHeight: autoHeight || typeof height === 'number' ? undefined : FALLBACK_HEIGHT,
+    '--rvg-header-action-size': `${headerActionSize}px`,
     ...(stripedColor ? { '--rvg-color-stripe': stripedColor } : null),
     ...style,
   } as CSSProperties;
@@ -3691,7 +3706,7 @@ function TableInner<Row extends object>({
   const scrollerBottom = Math.max(0, bottomSummaryHeight - horizontalScrollbarHeight);
 
   return (
-    <div className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
+    <div className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${frameBorderless ? ' is-frame-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
       <div ref={scrollerRef} className={`rvg-scroller${contextMenu ? ' is-context-menu-open' : ''}`} style={{ bottom: scrollerBottom }} onScroll={handleScroll} onCopy={handleCopy} onContextMenu={handleContextMenu} tabIndex={0} role="grid" aria-label={ariaLabel} aria-rowcount={rows.length} aria-colcount={columns.length} onKeyDown={handleKeyDown}>
         <canvas
           ref={canvasRef}

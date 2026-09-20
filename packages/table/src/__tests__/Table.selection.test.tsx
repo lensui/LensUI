@@ -19,6 +19,13 @@ afterEach(() => {
 });
 
 describe('Table utility column options', () => {
+  it('configures header action size through layout', () => {
+    const view = render(<Table columns={columns} rows={rows} layout={{ headerActionSize: 18 }} />);
+    const root = view.container.querySelector<HTMLElement>('.rvg-root')!;
+
+    expect(root.style.getPropertyValue('--rvg-header-action-size')).toBe('18px');
+  });
+
   it('configures body text size through the theme variable without changing the header', () => {
     const view = render(<Table columns={columns} rows={rows} style={{ '--rvg-font-size-body': '12px' } as CSSProperties} />);
     const root = view.container.querySelector<HTMLElement>('.rvg-root')!;
@@ -29,9 +36,10 @@ describe('Table utility column options', () => {
   });
 
   it('controls horizontal separators independently from vertical borders and stripes', () => {
-    const view = render(<Table columns={columns} rows={rows} horizontalBorderless striped />);
+    const view = render(<Table columns={columns} rows={rows} horizontalBorderless frameBorderless striped />);
     const root = view.container.querySelector('.rvg-root')!;
     expect(root.classList.contains('is-horizontal-borderless')).toBe(true);
+    expect(root.classList.contains('is-frame-borderless')).toBe(true);
     expect(root.classList.contains('is-vertical-borderless')).toBe(false);
     expect(root.classList.contains('is-striped')).toBe(true);
   });

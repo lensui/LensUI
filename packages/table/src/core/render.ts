@@ -1,7 +1,7 @@
 import type { GridColumn, GridSelection, GridKey, GridSortState, TableResolvedCellSpan, ViewportRange } from '../types';
 import { getDisplayLabel } from './format';
 import { createCellFont, getCellBaselineOffset } from './typography';
-import { getVisibleHeaderActions, HEADER_ACTION_SLOT_WIDTH, type ColumnMetric } from './layout';
+import { getVisibleHeaderActions, type ColumnMetric } from './layout';
 
 type PaintColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
@@ -18,6 +18,7 @@ interface PaintOptions<Row extends object> {
   scrollTop: number;
   rowHeight: number;
   bodyFontSize: number;
+  headerActionSlotWidth: number;
   headerHeight: number;
   headerLeafTop?: number;
   headerLeafHeight?: number;
@@ -27,6 +28,7 @@ interface PaintOptions<Row extends object> {
   fixedHeader: boolean;
   verticalBorderless: boolean;
   horizontalBorderless: boolean;
+  frameBorderless: boolean;
   striped: boolean;
   columnDraggable: boolean;
   sortState: GridSortState | null;
@@ -102,7 +104,7 @@ function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth
  * datasets cheap to scroll because only the visible viewport is painted.
  */
 export function paintGrid<Row extends object>(options: PaintOptions<Row>): void {
-  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, bodyFontSize, headerHeight, fixedHeader, verticalBorderless, horizontalBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
+  const { context: ctx, width, height, pixelRatio, scrollLeft, scrollTop, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, fixedHeader, verticalBorderless, horizontalBorderless, frameBorderless, striped, columnDraggable, sortState, filterValues, hoveredHeaderAction, rows, columns, metrics, range, selection, editing, hoveredRowIndex, selectionRange, selectedRowKeys, rowSelectionMode, selectedColumnKeys, highlightEditedCells, highlightInsertedRows, insertedRowKeys, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget } = options;
   const headerLeafTop = options.headerLeafTop ?? 0;
   const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
@@ -253,7 +255,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       ctx.fillStyle = colors.grid;
-      if (!verticalBorderless) ctx.fillRect(x + cellWidth - 1, y, 1, cellHeight);
+      if (!verticalBorderless && !(frameBorderless && columnIndex + colSpan >= columns.length)) {
+        ctx.fillRect(x + cellWidth - 1, y, 1, cellHeight);
+      }
       if (rowIndex === rowBelowDragGap) ctx.fillRect(x, y, cellWidth, 1);
       if (!horizontalBorderless && (!options.suppressLastRowBottomBorder || rowIndex !== rows.length - 1)) {
         ctx.fillRect(x, y + cellHeight - 1, cellWidth, 1);
@@ -426,14 +430,16 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
     ctx.fillStyle = colors.grid;
-    if (!verticalBorderless) ctx.fillRect(x + metric.width - 1, headerY, 1, headerHeight);
+    if (!verticalBorderless && !(frameBorderless && columnIndex === columns.length - 1)) {
+      ctx.fillRect(x + metric.width - 1, headerY, 1, headerHeight);
+    }
     if (!horizontalBorderless) ctx.fillRect(x, headerY + headerHeight - 1, metric.width, 1);
     const column = columns[columnIndex];
     if (headerLeafTop === 0 && !column.rowSelection && !column.rowDragHandle && !column.rowNumber && !column.renderHeader && column.title) {
       ctx.font = '600 13px Inter, ui-sans-serif, system-ui, sans-serif';
       const titleWidth = ctx.measureText(column.title).width;
-      const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth);
-      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * HEADER_ACTION_SLOT_WIDTH;
+      const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth, headerActionSlotWidth);
+      const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth;
       const contentWidth = Math.max(0, metric.width - actionWidth);
       const padding = 10;
       const clipWidth = contentWidth;
@@ -468,12 +474,12 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
 
   // Keep the table frame in the same paint layer so selection edges can replace it.
   ctx.fillStyle = colors.grid;
-  if (!horizontalBorderless) ctx.fillRect(0, 0, width, 1);
-  if (!verticalBorderless) {
+  if (!horizontalBorderless && !frameBorderless) ctx.fillRect(0, 0, width, 1);
+  if (!verticalBorderless && !frameBorderless) {
     ctx.fillRect(0, 0, 1, height);
     ctx.fillRect(width - 1, 0, 1, height);
   }
-  if (!horizontalBorderless && !options.suppressFrameBottomBorder) ctx.fillRect(0, height - 1, width, 1);
+  if (!horizontalBorderless && !frameBorderless && !options.suppressFrameBottomBorder) ctx.fillRect(0, height - 1, width, 1);
 
   if (selectionRange) {
     // Multi-cell range borders can be partially clipped by fixed headers or

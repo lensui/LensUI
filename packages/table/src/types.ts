@@ -134,6 +134,8 @@ export interface TableLayoutConfig {
   rowHeight?: number;
   /** Header height in pixels. Defaults to 40. */
   headerHeight?: number;
+  /** Header action icon size in pixels. Defaults to 14. */
+  headerActionSize?: number;
 }
 
 export interface TableCellSpan {
@@ -391,6 +393,8 @@ export interface TableProps<Row extends object> {
   verticalBorderless?: boolean;
   /** Hide horizontal row and frame separators while keeping vertical grid lines. */
   horizontalBorderless?: boolean;
+  /** Hide the outer table frame while keeping internal row and column separators. */
+  frameBorderless?: boolean;
   /** Paint alternating row backgrounds. Pass a color string to customize the stripe color. */
   striped?: boolean | string;
   /** Visual highlight feedback configuration. All entries default to false. */
