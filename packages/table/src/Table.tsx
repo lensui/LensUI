@@ -356,6 +356,7 @@ function TableInner<Row extends object>({
   onSortChange,
   onFilterChange,
   onCellChange,
+  editTrigger = 'double-click',
   onCellClick,
   onCellDoubleClick,
   onCellContextMenu,
@@ -3967,6 +3968,7 @@ function TableInner<Row extends object>({
               selectRow(cell.rowIndex, event);
             }
             revealCell(cell);
+            if (editTrigger === 'single-click') beginEdit(cell);
           }}
           onDoubleClick={(event) => {
             const cell = clickedCellRef.current ?? locateCell(event.clientX, event.clientY);
@@ -3975,7 +3977,7 @@ function TableInner<Row extends object>({
             if (column.rowNumber || column.rowSelection || column.rowDragHandle) return;
             const row = rows[cell.rowIndex];
             onCellDoubleClick?.({ ...cell, row, column, value: column.dataIndex === undefined ? undefined : row[column.dataIndex] }, event);
-            if (!event.defaultPrevented) beginEdit(cell);
+            if (!event.defaultPrevented && editTrigger === 'double-click') beginEdit(cell);
           }}
           onContextMenu={handleContextMenu}
         />

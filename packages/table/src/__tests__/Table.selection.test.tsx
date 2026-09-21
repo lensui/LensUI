@@ -233,6 +233,15 @@ describe('Table cell events and editing permissions', () => {
     expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('One');
   });
 
+  it('can enter editing on a single click', () => {
+    const view = render(<Table columns={editableColumns} rows={rows} editTrigger="single-click" />);
+    const canvas = view.container.querySelector('canvas')!;
+
+    fireEvent.click(canvas, { clientX: 80, clientY: 55 });
+
+    expect((view.getByRole('textbox') as HTMLInputElement).value).toBe('One');
+  });
+
   it('allows preventing double-click editing and rechecks permission before commit', () => {
     let allowed = true;
     const dynamicColumns = [{ ...editableColumns[0], editable: () => allowed }];

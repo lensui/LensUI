@@ -447,6 +447,8 @@ export interface TableProps<Row extends object> {
   /** Overrides the built-in text filtering. Return the rows that match the internally managed filter values. */
   onFilterChange?: (rows: Row[], values: Readonly<Record<string, string>>) => Row[];
   onCellChange?: (change: CellChange<Row>) => void | Promise<void>;
+  /** Starts editing from a single or double click. Defaults to double-click. */
+  editTrigger?: 'single-click' | 'double-click';
   /** Fires on a data cell click, before the default selection behavior. */
   onCellClick?: (cell: TableCellContext<Row>, event: MouseEvent<HTMLElement>) => void;
   /** Fires before double-click editing. preventDefault() cancels editing. */
