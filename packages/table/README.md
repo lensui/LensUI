@@ -600,6 +600,7 @@ const columns: GridColumn<Row>[] = [
 | `--rvg-color-primary`             | 选中、按钮、焦点等强调色。                                                         |
 | `--rvg-color-selection-fill`      | 单元格选中背景。                                                                   |
 | `--rvg-color-axis-selection-fill` | 行/列选中背景。                                                                    |
+| `--rvg-color-axis-selection-text` | 行/列选中后的正文和选择标记颜色，默认继承主文本色。                                |
 | `--rvg-color-edited-fill`         | 已编辑单元格背景。                                                                 |
 | `--rvg-color-stripe`              | `striped={true}` 时的斑马纹背景。也可以直接通过 `striped="#f6faff"` 单独指定。 |
 

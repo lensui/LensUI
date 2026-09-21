@@ -106,6 +106,28 @@ describe('Table utility column options', () => {
     fireEvent.click(canvas, { clientX: 14, clientY: 10 });
     expect(onChange).toHaveBeenCalledTimes(callsBeforeHeaderClick);
   });
+
+  it('marks custom cell content with the axis selection text color', () => {
+    const customColumns: GridColumn<(typeof rows)[number]>[] = [{
+      key: 'name',
+      title: 'Name',
+      dataIndex: 'name',
+      width: 200,
+      renderCell: (value) => <span>{String(value)}</span>,
+    }];
+    const view = render(
+      <Table
+        columns={customColumns}
+        rows={rows}
+        rowSelection
+        selectedRowKeys={[1]}
+        style={{ '--rvg-color-axis-selection-text': '#fff' } as CSSProperties}
+      />,
+    );
+
+    expect(view.getByText('One').closest('.rvg-cell-render')?.classList.contains('is-axis-selected')).toBe(true);
+    expect(view.getByText('Two').closest('.rvg-cell-render')?.classList.contains('is-axis-selected')).toBe(false);
+  });
 });
 
 describe('Table column resize', () => {

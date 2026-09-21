@@ -1,6 +1,6 @@
 {
   "name": "@lensui/lens-table",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "A lightweight, canvas-rendered React table component for LensUI.",
   "type": "module",
   "main": "./dist/index.cjs",

@@ -73,6 +73,7 @@ const COLORS = {
   selection: '#1677ff',
   selectionFill: '#edf4ff',
   axisSelectionFill: '#e8f2ff',
+  axisSelectionText: '#202124',
   rowHoverFill: '#f6f9fc',
   editedFill: '#fff1b8',
   insertedFill: '#c8ead4',
@@ -203,6 +204,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const colSpan = span?.colSpan ?? 1;
       const cellWidth = getCellWidth(columnIndex, colSpan);
       const cellHeight = rowHeight * rowSpan;
+      const isAxisSelected = selectedRowKeys.has(rowKey) || selectedColumnKeys.has(column.key);
       const rangeRowStart = selectionRange ? Math.min(selectionRange.anchor.rowIndex, selectionRange.focus.rowIndex) : -1;
       const rangeRowEnd = selectionRange ? Math.max(selectionRange.anchor.rowIndex, selectionRange.focus.rowIndex) : -1;
       const rangeColumnStart = selectionRange ? Math.min(selectionRange.anchor.columnIndex, selectionRange.focus.columnIndex) : -1;
@@ -216,7 +218,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillStyle = striped && rowIndex % 2 === 1 ? colors.stripe : colors.background;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
-      if (selectedRowKeys.has(rowKey) || selectedColumnKeys.has(column.key)) {
+      if (isAxisSelected) {
         ctx.fillStyle = colors.axisSelectionFill;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
@@ -275,7 +277,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
                 ? colors.insertedFill
                 : hoveredRowIndex === rowIndex
                   ? colors.rowHoverFill
-                  : selectedRowKeys.has(rowKey) || selectedColumnKeys.has(column.key)
+                    : isAxisSelected
                     ? colors.axisSelectionFill
                     : cellStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
         ctx.fillStyle = mergedFill;
@@ -294,7 +296,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
                 ? colors.insertedFill
                 : hoveredRowIndex === rowIndex
                   ? colors.rowHoverFill
-                  : selectedRowKeys.has(rowKey) || selectedColumnKeys.has(column.key)
+                    : isAxisSelected
                     ? colors.axisSelectionFill
                     : cellStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
         ctx.fillStyle = mergedFill;
@@ -338,7 +340,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
             ctx.moveTo(iconLeft + 8.5, iconTop + 4);
             ctx.lineTo(iconLeft + 12.5, iconTop + 8);
             ctx.lineTo(iconLeft + 8.5, iconTop + 12);
-            ctx.strokeStyle = colors.selection;
+            ctx.strokeStyle = colors.axisSelectionText;
             ctx.lineWidth = 1.75;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -394,8 +396,8 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
           ctx.beginPath();
           ctx.rect(x + 2, y + 1, Math.max(0, cellWidth - 4), cellHeight - 2);
           ctx.clip();
-          ctx.fillStyle = column.rowNumber && selectedRowKeys.has(rowKey)
-            ? colors.selection
+          ctx.fillStyle = isAxisSelected && !isSelectedCell && !isRangeCell
+            ? colors.axisSelectionText
             : cellStyle?.color ?? colors.text;
           ctx.font = createCellFont(bodyFontSize);
           ctx.textBaseline = 'alphabetic';

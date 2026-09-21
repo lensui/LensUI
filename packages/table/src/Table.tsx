@@ -1136,6 +1136,7 @@ function TableInner<Row extends object>({
       selection: readThemeColor(themeStyles, '--rvg-color-primary', '#1677ff'),
       selectionFill: readThemeColor(themeStyles, '--rvg-color-selection-fill', '#edf4ff'),
       axisSelectionFill: readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
+      axisSelectionText: readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
       editedFill: editedCellHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-edited-fill', '#fff1b8'),
       insertedFill: insertedRowHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-inserted-fill', '#c8ead4'),
@@ -3242,7 +3243,7 @@ function TableInner<Row extends object>({
       return (
         <div
           key={`render:${String(getRowKey(row, rowIndex))}:${column.key}`}
-          className="rvg-cell-render"
+          className={`rvg-cell-render${selectedRowKeySet.has(getRowKey(row, rowIndex)) || selectedColumnKeySet.has(column.key) ? ' is-axis-selected' : ''}`}
           style={{
             left,
             top,

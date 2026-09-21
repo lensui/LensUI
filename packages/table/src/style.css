@@ -15,6 +15,7 @@
   --rvg-color-primary-soft: #edf4ff;
   --rvg-color-selection-fill: #edf4ff;
   --rvg-color-axis-selection-fill: #e8f2ff;
+  --rvg-color-axis-selection-text: var(--rvg-color-text);
   --rvg-color-column-drop-target-fill: #eeeeee;
   --rvg-color-range-fill: #e8f1ff;
   --rvg-color-row-hover-fill: #f6f9fc;
@@ -79,6 +80,7 @@
 .rvg-header-title.is-custom > span { overflow: visible; white-space: normal; text-overflow: clip; }
 .rvg-cell-render { position: absolute; z-index: 1; display: flex; min-width: 0; padding: 0 10px; align-items: center; overflow: hidden; color: var(--rvg-color-text); font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: var(--rvg-font-size-body); white-space: nowrap; pointer-events: none; box-sizing: border-box; transition: transform 140ms ease, opacity 100ms ease; }
 .rvg-cell-render > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rvg-cell-render.is-axis-selected { color: var(--rvg-color-axis-selection-text); }
 .rvg-summary-row { position: absolute; z-index: 4; right: 0; left: 0; overflow: hidden; background: #fbfcfd; pointer-events: none; box-sizing: border-box; }
 .rvg-summary-row::before { position: absolute; z-index: 3; inset: 0; border-right: 1px solid var(--rvg-color-grid); border-left: 1px solid var(--rvg-color-grid); content: ''; pointer-events: none; }
 .rvg-summary-row.is-vertical-borderless::before { border-right: 0; border-left: 0; }
