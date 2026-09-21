@@ -5,6 +5,7 @@ import { getVisibleHeaderActions, type ColumnMetric } from './layout';
 
 type PaintColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
+  rowSelectionIndicator?: 'checkbox' | 'arrow';
   rowDragHandle?: boolean;
   rowNumber?: boolean;
 };
@@ -329,7 +330,21 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         const checked = selectedRowKeys.has(rowKey);
         ctx.save();
         ctx.lineWidth = 1;
-        if (rowSelectionMode === 'single') {
+        if (column.rowSelectionIndicator === 'arrow') {
+          if (checked) {
+            ctx.beginPath();
+            ctx.moveTo(iconLeft + 3.5, iconTop + 8);
+            ctx.lineTo(iconLeft + 12.5, iconTop + 8);
+            ctx.moveTo(iconLeft + 8.5, iconTop + 4);
+            ctx.lineTo(iconLeft + 12.5, iconTop + 8);
+            ctx.lineTo(iconLeft + 8.5, iconTop + 12);
+            ctx.strokeStyle = colors.selection;
+            ctx.lineWidth = 1.75;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+          }
+        } else if (rowSelectionMode === 'single') {
           ctx.beginPath();
           ctx.arc(iconLeft + 8, iconTop + 8, 6.25, 0, Math.PI * 2);
           ctx.fillStyle = colors.background;

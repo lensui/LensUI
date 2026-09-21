@@ -103,7 +103,8 @@ export function getVisibleHeaderActions<Row>(
  */
 export function getMinimumColumnWidth<Row>(column: LayoutColumn<Row>, columnDraggable = false): number {
   if (column.rowDragHandle) return 36;
-  if (column.rowSelection || column.rowNumber) return 44;
+  if (column.rowSelection) return Math.max(24, column.width ?? 44);
+  if (column.rowNumber) return 44;
   return 60;
 }
 

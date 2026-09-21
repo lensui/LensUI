@@ -64,6 +64,7 @@ interface ColumnDropState {
 
 type InternalGridColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
+  rowSelectionIndicator?: 'checkbox' | 'arrow';
   rowDragHandle?: boolean;
   rowNumber?: boolean;
 };
@@ -417,6 +418,8 @@ function TableInner<Row extends object>({
   const leafSourceColumns = useMemo(() => flattenDataColumns(sourceColumns), [sourceColumns]);
   const sourceColumnWidthsRef = useRef(new Map(leafSourceColumns.map((column) => [column.key, column.width] as const)));
   const showRowCheckbox = Boolean(rowSelection) && (typeof rowSelection !== 'object' || rowSelection.showCheckbox !== false);
+  const rowSelectionIndicator = typeof rowSelection === 'object' ? rowSelection.indicator ?? 'checkbox' : 'checkbox';
+  const rowSelectionColumnWidth = typeof rowSelection === 'object' ? Math.max(24, rowSelection.columnWidth ?? 44) : 44;
   useEffect(() => {
     if (!isProductionRuntime() && hasNestedFixedColumns(sourceColumns)) {
       console.warn('[Table] Multi-level headers only support fixed columns on top-level columns. Nested fixed values are ignored.');
@@ -428,7 +431,7 @@ function TableInner<Row extends object>({
       utilityColumns.push({ key: '__rvg_row_drag__', title: '', width: 36, align: 'center', fixed: 'left', rowDragHandle: true });
     }
     if (showRowCheckbox) {
-      utilityColumns.push({ key: '__rvg_row_selection__', title: '', width: 44, align: 'center', fixed: 'left', rowSelection: true });
+      utilityColumns.push({ key: '__rvg_row_selection__', title: '', width: rowSelectionColumnWidth, align: 'center', fixed: 'left', rowSelection: true, rowSelectionIndicator });
     }
     if (rowNumber) {
       utilityColumns.push({ key: '__rvg_row_number__', title: '#', width: getRowNumberColumnWidth(sourceRows.length), align: 'center', fixed: typeof rowNumber === 'object' && rowNumber.fixed === false ? undefined : 'left', rowNumber: true });
@@ -438,7 +441,7 @@ function TableInner<Row extends object>({
       return resizedWidth === undefined ? column : { ...column, width: resizedWidth };
     });
     return [...utilityColumns, ...dataColumns];
-  }, [leafSourceColumns, resizedColumnWidths, rowDraggable, rowNumber, showRowCheckbox, sourceRows.length]);
+  }, [leafSourceColumns, resizedColumnWidths, rowDraggable, rowNumber, rowSelectionColumnWidth, rowSelectionIndicator, showRowCheckbox, sourceRows.length]);
   const utilityColumnCount = (rowDraggable ? 1 : 0) + (showRowCheckbox ? 1 : 0) + (rowNumber ? 1 : 0);
   const headerCells = useMemo(() => buildHeaderCells(sourceColumns, utilityColumnCount, headerDepth), [headerDepth, sourceColumns, utilityColumnCount]);
   const activeCustomHeaderLevels = useMemo(() => {
@@ -3275,7 +3278,7 @@ function TableInner<Row extends object>({
       );
     }
     if (column.rowSelection) {
-      if (rowSelectionMode === 'single') return null;
+      if (rowSelectionMode === 'single' || column.rowSelectionIndicator === 'arrow') return null;
       const allSelected = rows.length > 0 && selectedRowKeySet.size === rows.length;
       const indeterminate = selectedRowKeySet.size > 0 && !allSelected;
       return (
@@ -3909,6 +3912,7 @@ function TableInner<Row extends object>({
               }
               if (locateHeaderDragHandle(event.clientX, columnIndex)) return;
               if (columnIndex >= 0 && columns[columnIndex].rowSelection && rowSelection) {
+                if (columns[columnIndex].rowSelectionIndicator === 'arrow') return;
                 setRowKeys(rowKeys.length === rows.length ? [] : rows.map(getRowKey));
               } else if (columnIndex >= 0 && (columns[columnIndex].rowDragHandle || columns[columnIndex].rowNumber)) {
                 return;
@@ -3927,7 +3931,7 @@ function TableInner<Row extends object>({
             const clickedRowSelector = Boolean(columns[cell.columnIndex].rowSelection);
             if (clickedRowSelector) {
               clickedCellRef.current = null;
-              selectRow(cell.rowIndex, event, true);
+              selectRow(cell.rowIndex, event, columns[cell.columnIndex].rowSelectionIndicator !== 'arrow');
               return;
             }
             if (event.detail > 1) return;

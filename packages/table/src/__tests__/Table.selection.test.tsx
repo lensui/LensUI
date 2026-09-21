@@ -76,6 +76,36 @@ describe('Table utility column options', () => {
     expect(view.getByRole('grid').getAttribute('aria-colcount')).toBe('3');
     expect(view.container.querySelector('.rvg-header-selection-icon')).toBeTruthy();
   });
+
+  it('renders a narrow blank arrow selector and keeps modifier-based multi-selection', () => {
+    const onChange = vi.fn();
+    const view = render(
+      <Table
+        columns={columns}
+        rows={rows}
+        rowNumber={false}
+        rowSelection={{ mode: 'multiple', indicator: 'arrow', columnWidth: 28 }}
+        onSelectedRowChange={onChange}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+    const spacer = view.container.querySelector<HTMLElement>('.rvg-spacer')!;
+
+    expect(view.getByRole('grid').getAttribute('aria-colcount')).toBe('2');
+    expect(view.container.querySelector('.rvg-header-selection-icon')).toBeNull();
+    expect(spacer.style.width).toBe('828px');
+
+    fireEvent.click(canvas, { clientX: 14, clientY: 55 });
+    expect(onChange).toHaveBeenLastCalledWith([1], [rows[0]], [0]);
+    fireEvent.click(canvas, { clientX: 14, clientY: 90 });
+    expect(onChange.mock.lastCall?.[0]).toEqual([2]);
+    fireEvent.click(canvas, { clientX: 14, clientY: 125, metaKey: true });
+    expect(onChange.mock.lastCall?.[0]).toEqual([2, 3]);
+
+    const callsBeforeHeaderClick = onChange.mock.calls.length;
+    fireEvent.click(canvas, { clientX: 14, clientY: 10 });
+    expect(onChange).toHaveBeenCalledTimes(callsBeforeHeaderClick);
+  });
 });
 
 describe('Table column resize', () => {

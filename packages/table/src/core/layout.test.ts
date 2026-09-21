@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildColumnMetrics, getViewportRange, hitTestColumn } from './layout';
+import { buildColumnMetrics, getMinimumColumnWidth, getViewportRange, hitTestColumn } from './layout';
 
 describe('virtual layout', () => {
   const metrics = buildColumnMetrics([{ key: 'a', title: 'A', width: 100 }, { key: 'b', title: 'B', width: 200 }, { key: 'c', title: 'C', width: 80 }]);
@@ -62,5 +62,10 @@ describe('virtual layout', () => {
     expect(hitTestColumn(metrics, 299)).toBe(1);
     expect(hitTestColumn(metrics, 300)).toBe(2);
     expect(hitTestColumn(metrics, 500)).toBe(-1);
+  });
+
+  it('respects a compact custom width for the row selection column', () => {
+    expect(getMinimumColumnWidth({ key: 'selection', title: '', rowSelection: true, width: 28 })).toBe(28);
+    expect(getMinimumColumnWidth({ key: 'selection', title: '', rowSelection: true, width: 12 })).toBe(24);
   });
 });
