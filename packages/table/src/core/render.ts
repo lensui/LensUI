@@ -659,7 +659,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const borderLeft = x <= 0 ? 0 : Math.max(x - borderWidth, visibleLeft);
       const borderRight = Math.min(x + selectionWidth - 1, selectionAreaRight - borderWidth, width - borderWidth);
       const borderTop = Math.max(y - borderWidth, selectionClipTop);
-      const borderBottom = Math.min(y + selectionHeight - 1, height - borderWidth);
+      const borderBottom = Math.min(y + selectionHeight, height - borderWidth);
       const borderOuterWidth = borderRight + borderWidth - borderLeft;
       ctx.fillRect(borderLeft, borderTop, borderOuterWidth, borderWidth);
       ctx.fillRect(borderLeft, borderBottom, borderOuterWidth, borderWidth);
