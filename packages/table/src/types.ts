@@ -376,6 +376,8 @@ export type TableContextMenu<Row> = boolean | TableContextMenuConfig<Row>;
 export interface TableProps<Row extends object> {
   columns: GridColumn<Row>[];
   rows: Row[];
+  /** Custom row paint style. Applies to data and generated utility columns. */
+  rowStyle?: (row: Row, rowIndex: number) => { color?: string; backgroundColor?: string };
   /** Stable row id. Defaults to the row's `id` field when omitted. */
   rowKey?: keyof Row | ((row: Row, index: number) => GridKey);
   width?: number | string;

@@ -162,6 +162,30 @@ describe('Table utility column options', () => {
     fireEvent.click(canvas, { clientX: 250, clientY: 10, shiftKey: true });
     expect(onChange.mock.lastCall?.[0]).toEqual(['id', 'name']);
   });
+
+  it('clears cell focus when clicking blank table space or outside the table', () => {
+    const onSelectedCellChange = vi.fn();
+    const view = render(
+      <Table
+        columns={columns}
+        rows={rows}
+        rowNumber={false}
+        autoHeight={false}
+        height={200}
+        onSelectedCellChange={onSelectedCellChange}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+
+    fireEvent.click(canvas, { clientX: 80, clientY: 55 });
+    expect(onSelectedCellChange.mock.lastCall?.[0]).toMatchObject({ rowKey: 1, columnKey: 'name' });
+    fireEvent.click(canvas, { clientX: 80, clientY: 180 });
+    expect(onSelectedCellChange).toHaveBeenLastCalledWith(null);
+
+    fireEvent.click(canvas, { clientX: 80, clientY: 55 });
+    fireEvent.pointerDown(document.body);
+    expect(onSelectedCellChange).toHaveBeenLastCalledWith(null);
+  });
 });
 
 describe('Table column resize', () => {

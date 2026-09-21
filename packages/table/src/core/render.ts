@@ -37,6 +37,7 @@ interface PaintOptions<Row extends object> {
   filterValues: Record<string, string>;
   hoveredHeaderAction: { columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null;
   rows: Row[];
+  rowStyle?: (row: Row, rowIndex: number) => { color?: string; backgroundColor?: string };
   columns: PaintColumn<Row>[];
   metrics: ColumnMetric[];
   range: ViewportRange;
@@ -192,6 +193,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
     const y = bodyTop + rowIndex * rowHeight - scrollTop + shift;
     const row = rows[rowIndex];
     const rowKey = getRowKey(row, rowIndex);
+    const rowStyle = options.rowStyle?.(row, rowIndex);
     for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
       if (layer === 'scroll' ? columns[columnIndex].fixed !== undefined : columns[columnIndex].fixed !== layer) continue;
       if (layer === 'scroll' && (columnIndex < range.columnStart || columnIndex >= range.columnEnd)) continue;
@@ -216,6 +218,10 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       // affecting whether vertical grid lines are visible.
       if (layer !== 'scroll' || (striped && rowIndex % 2 === 1)) {
         ctx.fillStyle = striped && rowIndex % 2 === 1 ? colors.stripe : colors.background;
+        ctx.fillRect(x, y, cellWidth, cellHeight);
+      }
+      if (rowStyle?.backgroundColor) {
+        ctx.fillStyle = rowStyle.backgroundColor;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       if (isAxisSelected) {
@@ -279,7 +285,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
                   ? colors.rowHoverFill
                     : isAxisSelected
                     ? colors.axisSelectionFill
-                    : cellStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
+                    : cellStyle?.backgroundColor ?? rowStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
         ctx.fillStyle = mergedFill;
         for (let offset = 1; offset < rowSpan; offset += 1) {
           ctx.fillRect(x, y + offset * rowHeight - 1, cellWidth, 2);
@@ -298,7 +304,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
                   ? colors.rowHoverFill
                     : isAxisSelected
                     ? colors.axisSelectionFill
-                    : cellStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
+                    : cellStyle?.backgroundColor ?? rowStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
         ctx.fillStyle = mergedFill;
         let offsetLeft = 0;
         for (let offset = 1; offset < colSpan; offset += 1) {
@@ -400,7 +406,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
           ctx.clip();
           ctx.fillStyle = isAxisSelected && !isSelectedCell && !isRangeCell
             ? colors.axisSelectionText
-            : cellStyle?.color ?? colors.text;
+            : cellStyle?.color ?? rowStyle?.color ?? colors.text;
           ctx.font = createCellFont(bodyFontSize);
           ctx.textBaseline = 'alphabetic';
           ctx.textAlign = column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left';

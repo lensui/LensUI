@@ -325,6 +325,7 @@ function TableInner<Row extends object>({
   horizontalBorderless = false,
   frameBorderless = false,
   striped = false,
+  rowStyle,
   highlight,
   cellSpans = [],
   loading = false,
@@ -461,6 +462,7 @@ function TableInner<Row extends object>({
   // focus, clipboard, and keyboard events.
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Animation frame refs throttle expensive work. frameRef is for canvas
   // repainting; textFrameRef is for synchronizing the DOM text overlay with
@@ -811,6 +813,19 @@ function TableInner<Row extends object>({
   const [selectionRange, setSelectionRange] = useState<{ anchor: GridSelection; focus: GridSelection } | null>(null);
   const rangeDragRef = useRef<{ anchor: GridSelection; moved: boolean } | null>(null);
 
+  useEffect(() => {
+    if (!selection) return undefined;
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || rootRef.current?.contains(target)) return;
+      clickedCellRef.current = null;
+      setSelectionRange(null);
+      setSelection(null);
+    };
+    document.addEventListener('pointerdown', handleOutsidePointerDown);
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown);
+  }, [selection, setSelection]);
+
   const applyRowOrder = useCallback((sourceIndex: number, targetIndex: number) => {
     if (sourceIndex === targetIndex || sourceIndex < 0 || targetIndex < 0 || sourceIndex >= rows.length || targetIndex >= rows.length) return;
     const nextEntries = rows.map((row, index) => ({ row, key: getDataRowKey(row, index) }));
@@ -1149,8 +1164,8 @@ function TableInner<Row extends object>({
     const range = isVirtualized
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
-    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, frameBorderless, extendVerticalGridLines: !autoHeight, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
-  }, [autoHeight, bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, frameBorderless, getRowKey, hasStripedRows, hasVerticalBorders, headerActionSlotWidth, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+    paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, frameBorderless, extendVerticalGridLines: !autoHeight, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, rowStyle, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
+  }, [autoHeight, bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, frameBorderless, getRowKey, hasStripedRows, hasVerticalBorders, headerActionSlotWidth, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rowStyle, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -3728,7 +3743,7 @@ function TableInner<Row extends object>({
   const scrollerBottom = Math.max(0, bottomSummaryHeight - horizontalScrollbarHeight);
 
   return (
-    <div className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${frameBorderless ? ' is-frame-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
+    <div ref={rootRef} className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${frameBorderless ? ' is-frame-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
       <div ref={scrollerRef} className={`rvg-scroller${contextMenu ? ' is-context-menu-open' : ''}`} style={{ bottom: scrollerBottom }} onScroll={handleScroll} onCopy={handleCopy} onContextMenu={handleContextMenu} tabIndex={0} role="grid" aria-label={ariaLabel} aria-rowcount={rows.length} aria-colcount={columns.length} onKeyDown={handleKeyDown}>
         <canvas
           ref={canvasRef}
@@ -3944,7 +3959,12 @@ function TableInner<Row extends object>({
               return;
             }
             const cell = locateCell(event.clientX, event.clientY);
-            if (!cell) return;
+            if (!cell) {
+              clickedCellRef.current = null;
+              setSelectionRange(null);
+              setSelection(null);
+              return;
+            }
             if (columns[cell.columnIndex].rowDragHandle || columns[cell.columnIndex].rowNumber) {
               clickedCellRef.current = null;
               return;
