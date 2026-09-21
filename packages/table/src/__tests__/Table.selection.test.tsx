@@ -186,6 +186,41 @@ describe('Table utility column options', () => {
     fireEvent.pointerDown(document.body);
     expect(onSelectedCellChange).toHaveBeenLastCalledWith(null);
   });
+
+  it('extends the focus outline equally above and below the selected cell', () => {
+    const view = render(
+      <Table
+        columns={columns}
+        rows={rows}
+        rowNumber={false}
+        selectedCell={{ rowKey: 2, columnKey: 'name' }}
+      />,
+    );
+    const focus = view.container.querySelector<HTMLElement>('.rvg-selection-focus')!;
+
+    expect(focus.style.top).toBe('74px');
+    expect(focus.style.height).toBe('40px');
+  });
+
+  it('reveals header actions only while their column header is hovered', () => {
+    const actionColumns: GridColumn<(typeof rows)[number]>[] = [{
+      key: 'name',
+      title: 'Name',
+      dataIndex: 'name',
+      width: 400,
+      sortable: true,
+      filterable: true,
+    }];
+    const view = render(<Table columns={actionColumns} rows={rows} rowNumber={false} columnDraggable />);
+    const canvas = view.container.querySelector('canvas')!;
+    const icons = () => [...view.container.querySelectorAll('.rvg-header-icon')];
+
+    expect(icons().every((icon) => !icon.classList.contains('is-header-hovered'))).toBe(true);
+    fireEvent.mouseMove(canvas, { clientX: 80, clientY: 10 });
+    expect(icons().every((icon) => icon.classList.contains('is-header-hovered'))).toBe(true);
+    fireEvent.mouseMove(canvas, { clientX: 80, clientY: 55 });
+    expect(icons().every((icon) => !icon.classList.contains('is-header-hovered'))).toBe(true);
+  });
 });
 
 describe('Table column resize', () => {

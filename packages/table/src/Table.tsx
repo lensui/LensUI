@@ -656,6 +656,7 @@ function TableInner<Row extends object>({
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
   const [resizeGuideTop, setResizeGuideTop] = useState(0);
+  const [hoveredHeaderColumnIndex, setHoveredHeaderColumnIndex] = useState<number | null>(null);
   const [hoveredHeaderAction, setHoveredHeaderAction] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
   const [visibleHeaderTooltip, setVisibleHeaderTooltip] = useState<HeaderTooltipState | null>(null);
   const [hoveredCellTooltip, setHoveredCellTooltip] = useState<{ rowIndex: number; columnIndex: number; left: number; top: number; label: string; color?: string; annotation?: boolean; placement?: 'left' | 'right' } | null>(null);
@@ -1696,7 +1697,7 @@ function TableInner<Row extends object>({
           const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart));
           const right = Math.round(Math.min(rawRight + 1, horizontalEnd, viewport.width));
           const top = Math.round(Math.max(rawTop - borderWidth, verticalStart));
-          const bottom = Math.round(Math.min(rawBottom + 1, renderHeight));
+          const bottom = Math.round(Math.min(rawBottom + borderWidth, renderHeight));
           focus.style.display = 'block';
           focus.style.left = `${left}px`;
           focus.style.top = `${top}px`;
@@ -2856,6 +2857,7 @@ function TableInner<Row extends object>({
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
     const isAxisSelected = selectedColumnKeySet.has(column.key);
     const selectedClassName = isAxisSelected ? ' is-axis-selected' : '';
+    const hoveredColumnClassName = hoveredHeaderColumnIndex === columnIndex ? ' is-header-hovered' : '';
     const top = headerLeafTop + (headerLeafHeight - headerActionSize) / 2;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
     let right = left + metrics[columnIndex].width - (visibleActions.drag ? headerActionSlotWidth : 2);
@@ -2863,21 +2865,21 @@ function TableInner<Row extends object>({
     if (visibleActions.drag) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'drag';
       icons.push(
-        <HeaderDragIcon key="drag" className={`rvg-header-icon rvg-header-drag-icon${selectedClassName}${hovered ? ' is-hovered' : ''}`} style={{ left: left + metrics[columnIndex].width - headerActionSlotWidth, top }} />,
+        <HeaderDragIcon key="drag" className={`rvg-header-icon rvg-header-drag-icon${selectedClassName}${hoveredColumnClassName}${hovered ? ' is-hovered' : ''}`} style={{ left: left + metrics[columnIndex].width - headerActionSlotWidth, top }} />,
       );
     }
     if (visibleActions.sort) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'sort';
       const direction = sortState?.columnKey === column.key ? sortState.direction : null;
       icons.push(
-        <HeaderSortIcon key="sort" className={`rvg-header-icon${selectedClassName}${hovered ? ' is-hovered' : ''}`} style={{ left: right - headerActionSlotWidth, top }} direction={direction} />,
+        <HeaderSortIcon key="sort" className={`rvg-header-icon${selectedClassName}${hoveredColumnClassName}${direction ? ' is-active' : ''}${hovered ? ' is-hovered' : ''}`} style={{ left: right - headerActionSlotWidth, top }} direction={direction} />,
       );
       right -= headerActionSlotWidth;
     }
     if (visibleActions.filter) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'filter';
       icons.push(
-        <HeaderSearchIcon key="filter" className={`rvg-header-icon rvg-header-search-icon${selectedClassName}${hovered ? ' is-hovered' : ''}${filterValues[column.key] ? ' is-active' : ''}`} style={{ left: right - headerActionSlotWidth, top: top + 1 }} />,
+        <HeaderSearchIcon key="filter" className={`rvg-header-icon rvg-header-search-icon${selectedClassName}${hoveredColumnClassName}${hovered ? ' is-hovered' : ''}${filterValues[column.key] ? ' is-active' : ''}`} style={{ left: right - headerActionSlotWidth, top: top + 1 }} />,
       );
     }
     return icons;
@@ -3466,7 +3468,7 @@ function TableInner<Row extends object>({
     const left = Math.round(Math.max(rawLeft - borderWidth, horizontalStart));
     const right = Math.round(Math.min(rawRight + 1, horizontalEnd, viewport.width));
     const top = Math.round(Math.max(rawTop - borderWidth, verticalStart));
-    const bottom = Math.round(Math.min(rawBottom + 1, renderHeight));
+    const bottom = Math.round(Math.min(rawBottom + borderWidth, renderHeight));
     return {
       left,
       top,
@@ -3761,6 +3763,10 @@ function TableInner<Row extends object>({
             const columnIndex = locateColumn(event.clientX);
             const inHeader = localY >= headerY && localY < headerY + headerHeight;
             const inLeafHeader = inHeader && localY >= headerY + headerLeafTop;
+            const nextHoveredHeaderColumnIndex = inLeafHeader && columnIndex >= 0 ? columnIndex : null;
+            setHoveredHeaderColumnIndex((current) => (
+              current === nextHoveredHeaderColumnIndex ? current : nextHoveredHeaderColumnIndex
+            ));
             const hoveredHeaderCell = inHeader ? locateHeaderCell(event.clientX, event.clientY) : null;
             const hoveredAction = inLeafHeader ? locateHeaderAction(event.clientX, columnIndex) : null;
             const hoveredDragHandle = Boolean(hoveredHeaderCell && locateHeaderCellDragHandle(event.clientX, hoveredHeaderCell));
@@ -3886,6 +3892,7 @@ function TableInner<Row extends object>({
           }}
           onMouseLeave={(event) => {
             event.currentTarget.style.cursor = 'default';
+            setHoveredHeaderColumnIndex(null);
             showCellTooltip(null);
             showHeaderTooltipAfterDelay(null);
             if (hoveredHeaderActionRef.current) {

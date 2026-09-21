@@ -187,12 +187,13 @@
 .rvg-header-scroll-clip { position: absolute; top: 0; bottom: 0; overflow: hidden; }
 .rvg-header-icon-layer { position: absolute; inset: 0; }
 .rvg-header-icon-layer-scroll { right: auto; will-change: transform; }
-.rvg-header-icon { position: absolute; width: var(--rvg-header-action-size, 14px); height: var(--rvg-header-action-size, 14px); overflow: visible; color: var(--rvg-color-icon); }
+.rvg-header-icon { position: absolute; width: var(--rvg-header-action-size, 14px); height: var(--rvg-header-action-size, 14px); overflow: visible; opacity: 0; color: var(--rvg-color-icon); transition: opacity 120ms ease, color 120ms ease; }
+.rvg-header-icon.is-header-hovered { opacity: 1; }
 .rvg-header-icon.is-hovered { color: var(--rvg-color-muted); }
 .rvg-header-icon.is-axis-selected,
 .rvg-header-icon.is-axis-selected.is-hovered,
 .rvg-header-icon.is-axis-selected.is-active { color: var(--rvg-color-axis-selection-text); }
-.rvg-root.is-initial-loading .rvg-header-icon { color: #d6dbe0; animation: rvg-loading-icon-pulse 1.15s ease-in-out infinite alternate; }
+.rvg-root.is-initial-loading .rvg-header-icon { opacity: 1; color: #d6dbe0; animation: rvg-loading-icon-pulse 1.15s ease-in-out infinite alternate; }
 .rvg-header-icon path,
 .rvg-header-icon circle { fill: currentColor; }
 .rvg-header-icon path.is-active,
