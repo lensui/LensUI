@@ -182,7 +182,7 @@ export interface RowSelectionConfig extends AxisSelectionConfig {
   /** Show the selection column. Defaults to true; when false, click body cells to select rows. */
   showCheckbox?: boolean;
   /** Selection marker style. Arrow stays blank until selected. Defaults to checkbox. */
-  indicator?: 'checkbox' | 'arrow';
+  indicator?: 'checkbox' | 'arrow' | 'none';
   /** Width of the generated selection column. Defaults to 44. */
   columnWidth?: number;
 }

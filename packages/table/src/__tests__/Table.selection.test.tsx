@@ -77,14 +77,14 @@ describe('Table utility column options', () => {
     expect(view.container.querySelector('.rvg-header-selection-icon')).toBeTruthy();
   });
 
-  it('renders a narrow blank arrow selector and keeps modifier-based multi-selection', () => {
+  it.each(['arrow', 'none'] as const)('renders a narrow blank %s selector and keeps modifier-based multi-selection', (indicator) => {
     const onChange = vi.fn();
     const view = render(
       <Table
         columns={columns}
         rows={rows}
         rowNumber={false}
-        rowSelection={{ mode: 'multiple', indicator: 'arrow', columnWidth: 28 }}
+        rowSelection={{ mode: 'multiple', indicator, columnWidth: 28 }}
         onSelectedRowChange={onChange}
       />,
     );
@@ -127,6 +127,40 @@ describe('Table utility column options', () => {
 
     expect(view.getByText('One').closest('.rvg-cell-render')?.classList.contains('is-axis-selected')).toBe(true);
     expect(view.getByText('Two').closest('.rvg-cell-render')?.classList.contains('is-axis-selected')).toBe(false);
+  });
+
+  it('selects one column by default and multiple columns with modifiers', () => {
+    const selectableColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 200 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 200 },
+    ];
+    const onChange = vi.fn();
+    const onSelectedCellChange = vi.fn();
+    const view = render(
+      <Table
+        columns={selectableColumns}
+        rows={rows}
+        rowNumber={false}
+        columnSelection={{ mode: 'multiple' }}
+        defaultSelectedCell={{ rowKey: 1, columnKey: 'name' }}
+        onSelectedCellChange={onSelectedCellChange}
+        onSelectedColumnChange={onChange}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+
+    fireEvent.click(canvas, { clientX: 50, clientY: 10 });
+    expect(onChange).toHaveBeenLastCalledWith(['id']);
+    expect(onSelectedCellChange).toHaveBeenLastCalledWith(null);
+    expect(view.getByText('ID').closest('.rvg-header-title')?.classList.contains('is-axis-selected')).toBe(true);
+    fireEvent.click(canvas, { clientX: 250, clientY: 10 });
+    expect(onChange.mock.lastCall?.[0]).toEqual(['name']);
+    expect(view.getByText('ID').closest('.rvg-header-title')?.classList.contains('is-axis-selected')).toBe(false);
+    expect(view.getByText('Name').closest('.rvg-header-title')?.classList.contains('is-axis-selected')).toBe(true);
+    fireEvent.click(canvas, { clientX: 50, clientY: 10, metaKey: true });
+    expect(onChange.mock.lastCall?.[0]).toEqual(['name', 'id']);
+    fireEvent.click(canvas, { clientX: 250, clientY: 10, shiftKey: true });
+    expect(onChange.mock.lastCall?.[0]).toEqual(['id', 'name']);
   });
 });
 
@@ -231,11 +265,18 @@ describe('Table ref', () => {
     act(() => {
       ref.current!.focus();
       expect(ref.current!.setSelectedCell({ rowKey: 2, columnKey: 'name' })).toBe(true);
+    });
+    expect(ref.current!.getSelectedCell()).toMatchObject({ rowKey: 2, columnKey: 'name', value: 'Two' });
+    act(() => {
       ref.current!.setSelectedRowKeys([1, 2, 2]);
+    });
+    expect(ref.current!.getSelectedCell()).toBeNull();
+    act(() => {
+      expect(ref.current!.setSelectedCell({ rowKey: 2, columnKey: 'name' })).toBe(true);
       ref.current!.setSelectedColumnKeys(['name', 'missing']);
     });
     expect(document.activeElement).toBe(view.getByRole('grid'));
-    expect(ref.current!.getSelectedCell()).toMatchObject({ rowKey: 2, columnKey: 'name', value: 'Two' });
+    expect(ref.current!.getSelectedCell()).toBeNull();
     expect(ref.current!.getSelectedRows()).toEqual([rows[0], rows[1]]);
     const keys = ref.current!.getSelectedRowKeys();
     keys.push(3);
@@ -245,7 +286,7 @@ describe('Table ref', () => {
       expect(ref.current!.setSelectedCell({ rowKey: 999, columnKey: 'name' })).toBe(false);
       expect(ref.current!.scrollToCell({ rowKey: 1, columnKey: 'missing' })).toBe(false);
     });
-    expect(ref.current!.getSelectedCell()?.rowKey).toBe(2);
+    expect(ref.current!.getSelectedCell()).toBeNull();
     act(() => ref.current!.clearSelection());
     expect(ref.current!.getSelectedCell()).toBeNull();
     expect(ref.current!.getSelectedRowKeys()).toEqual([]);

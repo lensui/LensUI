@@ -5,7 +5,7 @@ import { getVisibleHeaderActions, type ColumnMetric } from './layout';
 
 type PaintColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
-  rowSelectionIndicator?: 'checkbox' | 'arrow';
+  rowSelectionIndicator?: 'checkbox' | 'arrow' | 'none';
   rowDragHandle?: boolean;
   rowNumber?: boolean;
 };
@@ -332,7 +332,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         const checked = selectedRowKeys.has(rowKey);
         ctx.save();
         ctx.lineWidth = 1;
-        if (column.rowSelectionIndicator === 'arrow') {
+        if (column.rowSelectionIndicator === 'none') {
+          // Keep the selection hit area while expressing state through the row background only.
+        } else if (column.rowSelectionIndicator === 'arrow') {
           if (checked) {
             ctx.beginPath();
             ctx.moveTo(iconLeft + 3.5, iconTop + 8);
@@ -425,9 +427,25 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   paintBodyColumns('left');
   paintBodyColumns('right');
 
-  if (extendVerticalGridLines && !verticalBorderless) {
+  if (extendVerticalGridLines) {
     const extensionTop = Math.max(bodyTop, Math.min(height, bodyTop + rows.length * rowHeight - scrollTop));
     const extensionHeight = Math.max(0, height - extensionTop);
+    const paintExtendedColumnSelection = (layer: 'scroll' | 'left' | 'right') => {
+      ctx.save();
+      if (layer === 'scroll') {
+        ctx.beginPath();
+        ctx.rect(leftFixedWidth, extensionTop, Math.max(0, rightFixedLeft - leftFixedWidth), extensionHeight);
+        ctx.clip();
+      }
+      ctx.fillStyle = colors.axisSelectionFill;
+      for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+        if (!selectedColumnKeys.has(columns[columnIndex].key)) continue;
+        if (layer === 'scroll' ? columns[columnIndex].fixed !== undefined : columns[columnIndex].fixed !== layer) continue;
+        if (layer === 'scroll' && (columnIndex < range.columnStart || columnIndex >= range.columnEnd)) continue;
+        ctx.fillRect(getColumnX(columnIndex), extensionTop, metrics[columnIndex].width, extensionHeight);
+      }
+      ctx.restore();
+    };
     const paintExtendedColumnLines = (layer: 'scroll' | 'left' | 'right') => {
       ctx.save();
       if (layer === 'scroll') {
@@ -445,9 +463,14 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       ctx.restore();
     };
-    paintExtendedColumnLines('scroll');
-    paintExtendedColumnLines('left');
-    paintExtendedColumnLines('right');
+    paintExtendedColumnSelection('scroll');
+    paintExtendedColumnSelection('left');
+    paintExtendedColumnSelection('right');
+    if (!verticalBorderless) {
+      paintExtendedColumnLines('scroll');
+      paintExtendedColumnLines('left');
+      paintExtendedColumnLines('right');
+    }
   }
 
   const headerY = fixedHeader ? 0 : -scrollTop;
@@ -466,8 +489,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.fillStyle = colors.header;
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
-    if (selectedColumnKeys.has(columns[columnIndex].key)) {
-      ctx.fillStyle = colors.selectionFill;
+    const isAxisSelected = selectedColumnKeys.has(columns[columnIndex].key);
+    if (isAxisSelected) {
+      ctx.fillStyle = colors.axisSelectionFill;
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
     if (columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex) {
@@ -499,7 +523,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.beginPath();
       ctx.rect(x + 2, headerY + headerLeafTop + 1, Math.max(0, clipWidth - 4), headerLeafHeight - 2);
       ctx.clip();
-      ctx.fillStyle = colors.muted;
+      ctx.fillStyle = isAxisSelected ? colors.axisSelectionText : colors.muted;
       ctx.textAlign = titleAlign === 'right' ? 'right' : titleAlign === 'center' ? 'center' : 'left';
       ctx.fillText(title, textX, headerY + headerLeafTop + headerLeafHeight / 2);
       ctx.restore();

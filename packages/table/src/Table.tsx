@@ -64,7 +64,7 @@ interface ColumnDropState {
 
 type InternalGridColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
-  rowSelectionIndicator?: 'checkbox' | 'arrow';
+  rowSelectionIndicator?: 'checkbox' | 'arrow' | 'none';
   rowDragHandle?: boolean;
   rowNumber?: boolean;
 };
@@ -2385,6 +2385,9 @@ function TableInner<Row extends object>({
   // last explicitly selected row.
   const selectRow = useCallback((rowIndex: number, event: React.MouseEvent, forceToggle = false) => {
     if (!rowSelection) return;
+    clickedCellRef.current = null;
+    setSelectionRange(null);
+    setSelection(null);
     const mode = typeof rowSelection === 'object' ? rowSelection.mode ?? 'multiple' : 'multiple';
     const key = getRowKey(rows[rowIndex], rowIndex);
     let next: GridKey[];
@@ -2399,12 +2402,15 @@ function TableInner<Row extends object>({
     }
     rowAnchorRef.current = rowIndex;
     setRowKeys(next);
-  }, [getRowKey, rowKeys, rowSelection, rows, selectedRowKeySet, setRowKeys]);
+  }, [getRowKey, rowKeys, rowSelection, rows, selectedRowKeySet, setRowKeys, setSelection]);
 
   // Column selection follows the same rules as row selection, but works with
   // stable column keys because columns may be reordered.
   const selectColumn = useCallback((columnIndex: number, event: React.MouseEvent) => {
     if (!columnSelection || columnIndex < 0) return;
+    clickedCellRef.current = null;
+    setSelectionRange(null);
+    setSelection(null);
     const mode = typeof columnSelection === 'object' ? columnSelection.mode ?? 'multiple' : 'multiple';
     const key = columns[columnIndex].key;
     let next: string[];
@@ -2412,17 +2418,20 @@ function TableInner<Row extends object>({
       const start = Math.min(columnAnchorRef.current, columnIndex);
       const end = Math.max(columnAnchorRef.current, columnIndex);
       next = columns.slice(start, end + 1).map((column) => column.key);
-    } else if (mode === 'multiple') {
+    } else if (mode === 'multiple' && (event.ctrlKey || event.metaKey)) {
       next = selectedColumnKeySet.has(key) ? columnKeys.filter((item) => item !== key) : [...columnKeys, key];
     } else {
       next = columnKeys.length === 1 && selectedColumnKeySet.has(key) ? [] : [key];
     }
     columnAnchorRef.current = columnIndex;
     setColumnKeys(next);
-  }, [columnKeys, columnSelection, columns, selectedColumnKeySet, setColumnKeys]);
+  }, [columnKeys, columnSelection, columns, selectedColumnKeySet, setColumnKeys, setSelection]);
 
   const toggleColumnFromMenu = useCallback((columnIndex: number) => {
     if (!columnSelection || columnIndex < 0) return;
+    clickedCellRef.current = null;
+    setSelectionRange(null);
+    setSelection(null);
     const key = columns[columnIndex].key;
     const mode = typeof columnSelection === 'object' ? columnSelection.mode ?? 'multiple' : 'multiple';
     const selected = selectedColumnKeySet.has(key);
@@ -2433,7 +2442,7 @@ function TableInner<Row extends object>({
         : [key];
     columnAnchorRef.current = columnIndex;
     setColumnKeys(next);
-  }, [columnKeys, columnSelection, columns, selectedColumnKeySet, setColumnKeys]);
+  }, [columnKeys, columnSelection, columns, selectedColumnKeySet, setColumnKeys, setSelection]);
 
   // Scroll a target cell into view before editing or keyboard navigation. Fixed
   // columns never need horizontal adjustment because they are already visible.
@@ -2829,6 +2838,8 @@ function TableInner<Row extends object>({
   const renderHeaderIcons = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
+    const isAxisSelected = selectedColumnKeySet.has(column.key);
+    const selectedClassName = isAxisSelected ? ' is-axis-selected' : '';
     const top = headerLeafTop + (headerLeafHeight - headerActionSize) / 2;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
     let right = left + metrics[columnIndex].width - (visibleActions.drag ? headerActionSlotWidth : 2);
@@ -2836,21 +2847,21 @@ function TableInner<Row extends object>({
     if (visibleActions.drag) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'drag';
       icons.push(
-        <HeaderDragIcon key="drag" className={`rvg-header-icon rvg-header-drag-icon${hovered ? ' is-hovered' : ''}`} style={{ left: left + metrics[columnIndex].width - headerActionSlotWidth, top }} />,
+        <HeaderDragIcon key="drag" className={`rvg-header-icon rvg-header-drag-icon${selectedClassName}${hovered ? ' is-hovered' : ''}`} style={{ left: left + metrics[columnIndex].width - headerActionSlotWidth, top }} />,
       );
     }
     if (visibleActions.sort) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'sort';
       const direction = sortState?.columnKey === column.key ? sortState.direction : null;
       icons.push(
-        <HeaderSortIcon key="sort" className={`rvg-header-icon${hovered ? ' is-hovered' : ''}`} style={{ left: right - headerActionSlotWidth, top }} direction={direction} />,
+        <HeaderSortIcon key="sort" className={`rvg-header-icon${selectedClassName}${hovered ? ' is-hovered' : ''}`} style={{ left: right - headerActionSlotWidth, top }} direction={direction} />,
       );
       right -= headerActionSlotWidth;
     }
     if (visibleActions.filter) {
       const hovered = hoveredHeaderAction?.columnIndex === columnIndex && hoveredHeaderAction.action === 'filter';
       icons.push(
-        <HeaderSearchIcon key="filter" className={`rvg-header-icon rvg-header-search-icon${hovered ? ' is-hovered' : ''}${filterValues[column.key] ? ' is-active' : ''}`} style={{ left: right - headerActionSlotWidth, top: top + 1 }} />,
+        <HeaderSearchIcon key="filter" className={`rvg-header-icon rvg-header-search-icon${selectedClassName}${hovered ? ' is-hovered' : ''}${filterValues[column.key] ? ' is-active' : ''}`} style={{ left: right - headerActionSlotWidth, top: top + 1 }} />,
       );
     }
     return icons;
@@ -3263,6 +3274,7 @@ function TableInner<Row extends object>({
 
   const renderHeaderTitle = (columnIndex: number, left: number) => {
     const column = columns[columnIndex];
+    const isAxisSelected = selectedColumnKeySet.has(column.key);
     const isDropTarget = Boolean(columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex);
     const currentScrollTop = scrollRef.current.top;
     const headerTop = fixedHeader ? 0 : -currentScrollTop;
@@ -3279,7 +3291,7 @@ function TableInner<Row extends object>({
       );
     }
     if (column.rowSelection) {
-      if (rowSelectionMode === 'single' || column.rowSelectionIndicator === 'arrow') return null;
+      if (rowSelectionMode === 'single' || column.rowSelectionIndicator === 'arrow' || column.rowSelectionIndicator === 'none') return null;
       const allSelected = rows.length > 0 && selectedRowKeySet.size === rows.length;
       const indeterminate = selectedRowKeySet.size > 0 && !allSelected;
       return (
@@ -3298,7 +3310,7 @@ function TableInner<Row extends object>({
       return (
         <div
           key={column.key}
-          className={`rvg-header-title is-custom${isDropTarget ? ' is-drop-target' : ''}`}
+          className={`rvg-header-title is-custom${isAxisSelected ? ' is-axis-selected' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
           data-level={headerDepth - 1}
           data-measure-key={column.key}
           style={{
@@ -3352,10 +3364,11 @@ function TableInner<Row extends object>({
     const isDropTarget = Boolean(columnDropTarget
       && cell.endIndex >= columnDropTarget.startIndex
       && cell.startIndex <= columnDropTarget.endIndex);
+    const isAxisSelected = cell.leaf && selectedColumnKeySet.has(column.key);
     return (
       <div
         key={`group:${cell.key}:${cell.level}`}
-        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}${cell.endIndex === columns.length - 1 ? ' is-frame-right' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+        className={`rvg-header-title rvg-header-group${column.renderHeader ? ' is-custom' : ''}${cell.leaf ? ' is-leaf' : ''}${isAxisSelected ? ' is-axis-selected' : ''}${cell.endIndex === columns.length - 1 ? ' is-frame-right' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
         data-level={cell.level}
         data-measure-key={`group:${cell.key}:${cell.level}`}
         style={{
@@ -3668,12 +3681,16 @@ function TableInner<Row extends object>({
       getSelectedRows: () => rows.filter((row, index) => selectedRowKeySet.has(getRowKey(row, index))),
       setSelectedRowKeys: (keys) => {
         if (!rowSelection) return;
+        setSelectionRange(null);
+        setSelection(null);
         const next = [...new Set(keys)];
         setRowKeys(rowSelectionMode === 'single' ? next.slice(0, 1) : next);
       },
       getSelectedColumnKeys: () => [...columnKeys],
       setSelectedColumnKeys: (keys) => {
         if (!columnSelection) return;
+        setSelectionRange(null);
+        setSelection(null);
         const next = [...new Set(keys)].filter((key) => columns.some((column) => column.key === key && !column.rowNumber && !column.rowSelection && !column.rowDragHandle));
         setColumnKeys(typeof columnSelection === 'object' && columnSelection.mode === 'single' ? next.slice(0, 1) : next);
       },
@@ -3913,7 +3930,9 @@ function TableInner<Row extends object>({
               }
               if (locateHeaderDragHandle(event.clientX, columnIndex)) return;
               if (columnIndex >= 0 && columns[columnIndex].rowSelection && rowSelection) {
-                if (columns[columnIndex].rowSelectionIndicator === 'arrow') return;
+                if (columns[columnIndex].rowSelectionIndicator === 'arrow' || columns[columnIndex].rowSelectionIndicator === 'none') return;
+                setSelectionRange(null);
+                setSelection(null);
                 setRowKeys(rowKeys.length === rows.length ? [] : rows.map(getRowKey));
               } else if (columnIndex >= 0 && (columns[columnIndex].rowDragHandle || columns[columnIndex].rowNumber)) {
                 return;
@@ -3932,7 +3951,7 @@ function TableInner<Row extends object>({
             const clickedRowSelector = Boolean(columns[cell.columnIndex].rowSelection);
             if (clickedRowSelector) {
               clickedCellRef.current = null;
-              selectRow(cell.rowIndex, event, columns[cell.columnIndex].rowSelectionIndicator !== 'arrow');
+              selectRow(cell.rowIndex, event, !['arrow', 'none'].includes(columns[cell.columnIndex].rowSelectionIndicator ?? 'checkbox'));
               return;
             }
             if (event.detail > 1) return;
@@ -4249,6 +4268,8 @@ function TableInner<Row extends object>({
               if (item === 'select-row') {
                 if (!rowSelection) return null;
                 return renderContextMenuButton('cell-select-row', cellContext, selectedRowKeySet.has(cell.rowKey) ? labels.deselectRow : labels.selectRow, () => {
+                  setSelectionRange(null);
+                  setSelection(null);
                   if (selectedRowKeySet.has(cell.rowKey)) setRowKeys(rowKeys.filter((key) => key !== cell.rowKey));
                   else setRowKeys(rowSelectionMode === 'single' ? [cell.rowKey] : [...rowKeys, cell.rowKey]);
                 }, override, { icon: <ContextMenuIcon type="select-row" /> });
