@@ -62,6 +62,22 @@ interface ColumnDropState {
   columnEdge: 'left' | 'right';
 }
 
+export function resolveColumnDropIndex(
+  sourceIndex: number,
+  targetIndex: number,
+  edge: unknown,
+  columnCount: number,
+) {
+  const insertionIndex = targetIndex
+    + (edge === 'right' ? 1 : 0)
+    - (sourceIndex < targetIndex ? 1 : 0);
+  return Math.max(0, Math.min(columnCount - 1, insertionIndex));
+}
+
+export function resolveColumnDropPlacement(edge: unknown): 'before' | 'after' {
+  return edge === 'right' ? 'after' : 'before';
+}
+
 type InternalGridColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
   rowSelectionIndicator?: 'checkbox' | 'arrow' | 'none';
@@ -417,6 +433,7 @@ function TableInner<Row extends object>({
   const contextMenuEnabled = contextMenuConfig !== false;
   const customContextMenuConfig = typeof contextMenuConfig === 'object' ? contextMenuConfig : undefined;
   const [resizedColumnWidths, setResizedColumnWidths] = useState<Record<string, number>>({});
+  const [manuallyResizedColumnKeys, setManuallyResizedColumnKeys] = useState<Set<string>>(() => new Set());
   const leafSourceColumns = useMemo(() => flattenDataColumns(sourceColumns), [sourceColumns]);
   const sourceColumnWidthsRef = useRef(new Map(leafSourceColumns.map((column) => [column.key, column.width] as const)));
   const showRowCheckbox = Boolean(rowSelection) && (typeof rowSelection !== 'object' || rowSelection.showCheckbox !== false);
@@ -577,6 +594,12 @@ function TableInner<Row extends object>({
     const previousSourceWidths = sourceColumnWidthsRef.current;
     const nextSourceWidths = new Map(leafSourceColumns.map((column) => [column.key, column.width] as const));
     sourceColumnWidthsRef.current = nextSourceWidths;
+    setManuallyResizedColumnKeys((current) => {
+      const next = new Set([...current].filter((key) => (
+        nextSourceWidths.has(key) && previousSourceWidths.get(key) === nextSourceWidths.get(key)
+      )));
+      return next.size === current.size ? current : next;
+    });
     setResizedColumnWidths((current) => {
       const sourceColumnByKey = new Map(leafSourceColumns.map((column) => [column.key, column] as const));
       let changed = false;
@@ -883,11 +906,14 @@ function TableInner<Row extends object>({
     setEditing(null);
   }, [editing, selection]);
 
-  const hasManualColumnWidths = Object.keys(resizedColumnWidths).length > 0;
+  const stretchExcludedIndices = useMemo(() => new Set(
+    columns.flatMap((column, index) => manuallyResizedColumnKeys.has(column.key) ? [index] : []),
+  ), [columns, manuallyResizedColumnKeys]);
   const metrics = useMemo(() => buildColumnMetrics(columns, {
     columnDraggable,
-    viewportWidth: hasManualColumnWidths ? 0 : viewport.width,
-  }), [columnDraggable, columns, hasManualColumnWidths, viewport.width]);
+    viewportWidth: viewport.width,
+    stretchExcludedIndices,
+  }), [columnDraggable, columns, stretchExcludedIndices, viewport.width]);
   const contentWidth = metrics.length > 0 ? metrics[metrics.length - 1].right : 0;
   const contentHeight = rows.length * rowHeight;
   const fixedWidth = useMemo(() => columns.reduce((width, column, index) => column.fixed === 'left' ? width + metrics[index].width : width, 0), [columns, metrics]);
@@ -1774,6 +1800,7 @@ function TableInner<Row extends object>({
   }, [headerDepth, headerRowHeights, headerRowOffsets]);
 
   const resizeColumn = useCallback((columnKey: string, width: number) => {
+    setManuallyResizedColumnKeys((current) => current.has(columnKey) ? current : new Set(current).add(columnKey));
     setResizedColumnWidths((current) => (
       current[columnKey] === width ? current : { ...current, [columnKey]: width }
     ));
@@ -1956,15 +1983,9 @@ function TableInner<Row extends object>({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || (!columnDraggable && !rowDraggable)) return;
-    const getColumnDropIndex = (sourceIndex: number, targetIndex: number, edge: unknown) => {
-      if (edge === 'right') return targetIndex;
-      const destinationIndex = targetIndex - (sourceIndex < targetIndex ? 1 : 0);
-      return Math.max(0, Math.min(columns.length - 1, destinationIndex));
-    };
-    const getColumnDropPlacement = (sourceIndex: number, targetIndex: number, edge: unknown): 'before' | 'after' => {
-      if (edge !== 'right') return 'before';
-      return targetIndex < sourceIndex ? 'before' : 'after';
-    };
+    const getColumnDropIndex = (sourceIndex: number, targetIndex: number, edge: unknown) => (
+      resolveColumnDropIndex(sourceIndex, targetIndex, edge, columns.length)
+    );
     const getHeaderColumn = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       const headerY = fixedHeader ? 0 : -scrollRef.current.top;
@@ -1974,8 +1995,9 @@ function TableInner<Row extends object>({
     };
     const getHeaderDragCell = (clientX: number, clientY: number) => {
       const cell = locateHeaderCell(clientX, clientY);
-      if (!cell) return null;
-      return locateHeaderCellDragHandle(clientX, cell) && !locateHeaderResizeCell(clientX, clientY) ? cell : null;
+      if (!cell || locateHeaderResizeCell(clientX, clientY)) return null;
+      if (cell.leaf && locateHeaderAction(clientX, cell.startIndex)) return null;
+      return cell;
     };
     const cleanupDrag = draggable({
       element: canvas,
@@ -2262,7 +2284,7 @@ function TableInner<Row extends object>({
               sourceKey: String(source.data.sourceKey),
               targetKey: validDrop.targetKey,
               parentKey: validDrop.parentKey,
-              placement: getColumnDropPlacement(validDrop.sourceIndex, validDrop.rawTargetIndex, validDrop.columnEdge),
+              placement: resolveColumnDropPlacement(validDrop.columnEdge),
             },
           );
         }
@@ -2331,7 +2353,7 @@ function TableInner<Row extends object>({
       cleanupDrag();
       cleanupDrop();
     };
-  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, filterValues, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerActionSize, headerActionSlotWidth, headerCells, headerHeight, hideDragTooltips, locateColumn, locateHeaderCell, locateHeaderCellDragHandle, locateHeaderResizeCell, locateRow, measureHeaderTitleWidth, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, selection, setDragGuide, setRowDragGuide, sortState, utilityColumnCount]);
+  }, [applyColumnOrder, applyRowOrder, bodyTop, columnDraggable, columns, filterValues, fixedHeader, getCellLabel, getDisplayedColumnLeft, getHeaderCellWidth, getRowKey, headerActionSize, headerActionSlotWidth, headerCells, headerHeight, hideDragTooltips, locateColumn, locateHeaderAction, locateHeaderCell, locateHeaderResizeCell, locateRow, measureHeaderTitleWidth, metrics, rowDraggable, rowHeight, rows, selectedRowKeySet, selection, setDragGuide, setRowDragGuide, sortState, utilityColumnCount]);
 
   // Convert a viewport pointer coordinate into a grid cell identity. This is
   // the shared hit-test path for hover tooltips, selection, range dragging,
@@ -2858,7 +2880,9 @@ function TableInner<Row extends object>({
     const isAxisSelected = selectedColumnKeySet.has(column.key);
     const selectedClassName = isAxisSelected ? ' is-axis-selected' : '';
     const hoveredColumnClassName = hoveredHeaderColumnIndex === columnIndex ? ' is-header-hovered' : '';
-    const top = headerLeafTop + (headerLeafHeight - headerActionSize) / 2;
+    const top = column.renderHeader
+      ? headerLeafTop + 8 + Math.max(0, (16 - headerActionSize) / 2)
+      : headerLeafTop + (headerLeafHeight - headerActionSize) / 2;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
     let right = left + metrics[columnIndex].width - (visibleActions.drag ? headerActionSlotWidth : 2);
     const icons = [];

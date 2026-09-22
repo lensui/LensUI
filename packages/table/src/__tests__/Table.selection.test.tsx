@@ -2,7 +2,7 @@
 import { createRef, type CSSProperties } from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Table } from '../Table';
+import { resolveColumnDropIndex, resolveColumnDropPlacement, Table } from '../Table';
 import type { GridColumn, TableRef } from '../types';
 
 const rows = [{ id: 1, name: 'One' }, { id: 2, name: 'Two' }, { id: 3, name: 'Three' }];
@@ -16,6 +16,20 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe('Table column reorder placement', () => {
+  it('resolves insertion indices consistently in both drag directions', () => {
+    expect(resolveColumnDropIndex(0, 2, 'left', 4)).toBe(1);
+    expect(resolveColumnDropIndex(0, 2, 'right', 4)).toBe(2);
+    expect(resolveColumnDropIndex(3, 1, 'left', 4)).toBe(1);
+    expect(resolveColumnDropIndex(3, 1, 'right', 4)).toBe(2);
+  });
+
+  it('keeps the reported placement aligned with the hovered edge', () => {
+    expect(resolveColumnDropPlacement('left')).toBe('before');
+    expect(resolveColumnDropPlacement('right')).toBe('after');
+  });
 });
 
 describe('Table utility column options', () => {
@@ -221,6 +235,26 @@ describe('Table utility column options', () => {
     fireEvent.mouseMove(canvas, { clientX: 80, clientY: 55 });
     expect(icons().every((icon) => !icon.classList.contains('is-header-hovered'))).toBe(true);
   });
+
+  it('keeps custom multi-line header actions aligned with the first header row', () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(64);
+    const actionColumns: GridColumn<(typeof rows)[number]>[] = [{
+      key: 'name',
+      title: 'Name',
+      dataIndex: 'name',
+      width: 400,
+      sortable: true,
+      filterable: true,
+      renderHeader: () => <div>Name<br />varchar<br />--</div>,
+    }];
+    const view = render(<Table columns={actionColumns} rows={rows} rowNumber={false} columnDraggable />);
+    const icons = [...view.container.querySelectorAll<HTMLElement>('.rvg-header-icon')];
+
+    expect(icons.length).toBe(3);
+    expect(icons[0].style.top).toBe('9px');
+    expect(icons[1].style.top).toBe('9px');
+    expect(icons[2].style.top).toBe('10px');
+  });
 });
 
 describe('Table column resize', () => {
@@ -253,6 +287,38 @@ describe('Table column resize', () => {
 
     expect(onColumnResize).toHaveBeenLastCalledWith('id', 240);
     expect(spacer.style.width).toBe('440px');
+  });
+
+  it('redistributes released width to sibling columns when a column is narrowed', () => {
+    const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onColumnResize = vi.fn();
+    const view = render(
+      <Table
+        columns={resizeColumns}
+        rows={rows}
+        rowNumber={false}
+        onColumnResize={onColumnResize}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    const spacer = view.container.querySelector<HTMLElement>('.rvg-spacer')!;
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 200));
+    fireEvent(canvas, pointerEvent('pointermove', 100));
+
+    expect(onColumnResize).toHaveBeenLastCalledWith('id', 100);
+    expect(spacer.style.width).toBe('400px');
+    expect(view.getByText('ID').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('100px');
+    expect(view.getByText('Name').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('300px');
   });
 });
 

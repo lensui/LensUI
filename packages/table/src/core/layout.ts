@@ -33,6 +33,8 @@ export const HEADER_ACTION_SLOT_WIDTH = 16;
 export interface BuildColumnMetricsOptions {
   columnDraggable?: boolean;
   viewportWidth?: number;
+  /** Columns whose manually resized widths must remain exact while spare width is distributed. */
+  stretchExcludedIndices?: ReadonlySet<number>;
 }
 
 function isDataColumn<Row>(column: LayoutColumn<Row>): boolean {
@@ -120,6 +122,7 @@ export function buildColumnMetrics<Row>(
     ? { columnDraggable: columnDraggableOrOptions }
     : columnDraggableOrOptions;
   const columnDraggable = options.columnDraggable ?? false;
+  const stretchExcludedIndices = options.stretchExcludedIndices ?? new Set<number>();
   let left = 0;
   const metrics = columns.map((column) => {
     const width = Math.max(getMinimumColumnWidth(column, columnDraggable), column.width ?? DEFAULT_COLUMN_WIDTH);
@@ -132,15 +135,16 @@ export function buildColumnMetrics<Row>(
 
   const unsetWidthStretchable = columns
     .map((column, index) => ({ column, index }))
-    .filter(({ column }) => column.width === undefined && column.fixed === undefined && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
-  const dataStretchable = columns
+    .filter(({ column, index }) => !stretchExcludedIndices.has(index) && column.width === undefined && column.fixed === undefined && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
+  const allDataStretchable = columns
     .map((column, index) => ({ column, index }))
     .filter(({ column }) => column.fixed === undefined && !column.rowSelection && !column.rowDragHandle && !column.rowNumber);
+  const dataStretchable = allDataStretchable.filter(({ index }) => !stretchExcludedIndices.has(index));
   const targets = unsetWidthStretchable.length > 0
     ? unsetWidthStretchable
     : dataStretchable.length > 0
       ? dataStretchable
-      : [];
+      : allDataStretchable.slice(-1);
   if (targets.length === 0) return metrics;
 
   const extra = viewportWidth - left;
