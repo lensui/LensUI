@@ -180,6 +180,7 @@
 .rvg-text-fixed-shadow.is-left { background: linear-gradient(90deg, rgba(5, 5, 5, 0.06), transparent); }
 .rvg-text-fixed-shadow.is-right { background: linear-gradient(90deg, transparent, rgba(5, 5, 5, 0.06)); }
 .rvg-text-fixed-border { position: absolute; z-index: 5; top: 0; bottom: 0; width: 1px; background: var(--rvg-color-grid); pointer-events: none; }
+.rvg-trailing-column-border { position: absolute; z-index: 6; top: 0; width: 1px; background: var(--rvg-color-grid); pointer-events: none; }
 .rvg-header-icons { position: absolute; z-index: 2; top: 0; right: 0; left: 0; overflow: hidden; pointer-events: none; }
 .rvg-header-icons::after { position: absolute; z-index: 3; top: 0; right: 0; bottom: 0; width: 1px; background: var(--rvg-color-grid); content: ''; pointer-events: none; }
 .rvg-root.is-frame-borderless .rvg-header-icons::after { display: none; }

@@ -360,6 +360,10 @@ describe('Table column resize', () => {
     expect(spacer.style.width).toBe('300px');
     expect(view.getByText('ID').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('100px');
     expect(view.getByText('Name').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('200px');
+    const trailingBorder = view.container.querySelector<HTMLElement>('.rvg-trailing-column-border')!;
+    expect(trailingBorder.style.left).toBe('299px');
+    expect(trailingBorder.style.top).toBe('');
+    expect(trailingBorder.style.height).toBe(canvas.style.height);
   });
 
   it('keeps trailing decoration outside cell hit testing after resize', () => {

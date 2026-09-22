@@ -1787,6 +1787,15 @@ function TableInner<Row extends object>({
     return getScrollableColumnLeft(columnIndex) - scrollRef.current.left;
   }, [columns, getScrollableColumnLeft, leftFixedOffsets, metrics, rightFixedOffsets, viewport.width]);
 
+  const trailingColumnBorderLeft = useMemo(() => {
+    const displayedContentRight = columns.reduce((right, _column, columnIndex) => (
+      Math.max(right, getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width)
+    ), 0);
+    return displayedContentRight > 0 && displayedContentRight < viewport.width
+      ? Math.round(displayedContentRight) - 1
+      : null;
+  }, [columns, getDisplayedColumnLeft, metrics, scrollPosition.left, viewport.width]);
+
   const getHeaderLevelAtY = useCallback((localY: number, headerY: number) => {
     const y = localY - headerY;
     for (let level = 0; level < headerRowHeights.length; level += 1) {
@@ -4000,6 +4009,12 @@ function TableInner<Row extends object>({
           {columns.map((column, index) => column.fixed === 'right' ? <span key={column.key}>{renderHeaderIcons(index, viewport.width - (rightFixedOffsets.get(index) ?? 0) - metrics[index].width)}</span> : null)}
         </div>
       </div>
+      {hasVerticalBorders && trailingColumnBorderLeft !== null && (
+        <div
+          className="rvg-trailing-column-border"
+          style={{ left: trailingColumnBorderLeft, height: renderHeight }}
+        />
+      )}
       {headerTooltip && (
         <div className={`rvg-header-tooltip is-${headerTooltip.placement}`} role="tooltip" style={{ left: headerTooltip.left, top: headerTooltip.top }}>
           {headerTooltip.label}
