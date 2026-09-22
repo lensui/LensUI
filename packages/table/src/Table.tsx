@@ -78,6 +78,22 @@ export function resolveColumnDropPlacement(edge: unknown): 'before' | 'after' {
   return edge === 'right' ? 'after' : 'before';
 }
 
+export function resolveColumnDropHighlightRange(
+  target: { startIndex: number; endIndex: number; level: number; parentKey?: string },
+  edge: 'left' | 'right',
+  cells: Array<{ startIndex: number; endIndex: number; level: number; parentKey?: string }>,
+) {
+  if (edge === 'right') return { startIndex: target.startIndex, endIndex: target.endIndex };
+  const previous = cells.find((cell) => (
+    cell.endIndex === target.startIndex - 1
+    && cell.level === target.level
+    && cell.parentKey === target.parentKey
+  ));
+  return previous
+    ? { startIndex: previous.startIndex, endIndex: previous.endIndex }
+    : { startIndex: target.startIndex, endIndex: target.endIndex };
+}
+
 type InternalGridColumn<Row> = GridColumn<Row> & {
   rowSelection?: boolean;
   rowSelectionIndicator?: 'checkbox' | 'arrow' | 'none';
@@ -1180,7 +1196,7 @@ function TableInner<Row extends object>({
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
       editedFill: editedCellHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-edited-fill', '#fff1b8'),
       insertedFill: insertedRowHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-inserted-fill', '#c8ead4'),
-      columnDropTargetFill: readThemeColor(themeStyles, '--rvg-color-column-drop-target-fill', '#eeeeee'),
+      columnDropTargetFill: readThemeColor(themeStyles, '--rvg-color-column-drop-target-fill', '#e2edf9'),
       stripe: stripedColor ?? readThemeColor(themeStyles, '--rvg-color-stripe', '#fafbfc'),
     };
     const scroll = scrollRef.current;
@@ -2722,7 +2738,15 @@ function TableInner<Row extends object>({
       fixed: targetColumn.fixed,
       columnEdge,
     };
-    setColumnDropTarget({ startIndex: targetCell.startIndex, endIndex: targetCell.endIndex });
+    const compatibleHighlightCells = headerCells.filter((cell) => {
+      const cellColumn = columns[cell.startIndex];
+      return cellColumn
+        && !cellColumn.rowSelection
+        && !cellColumn.rowDragHandle
+        && !cellColumn.rowNumber
+        && cellColumn.fixed === targetColumn.fixed;
+    });
+    setColumnDropTarget(resolveColumnDropHighlightRange(targetCell, columnEdge, compatibleHighlightCells));
     setDragGuide(columnEdge === 'right' ? targetLeft + targetWidth : targetLeft, headerRowOffsets[sourceCell.level] ?? 0);
   }, [columns, getHeaderCellLeft, getHeaderCellWidth, headerCells, headerRowOffsets, hideDragTooltips, locateColumn, locateHeaderCell, setDragGuide]);
 
@@ -2885,7 +2909,7 @@ function TableInner<Row extends object>({
     return localX >= textLeft - 4 && localX <= textLeft + textWidth + 4 && localY >= textTop - 2 && localY <= textTop + 18;
   }, [columnDraggable, fixedHeader, getHeaderCellLeft, getHeaderCellWidth, headerActionSlotWidth, headerRowOffsets]);
 
-  const locateCustomHeaderTooltip = useCallback((clientX: number, clientY: number, columnIndex: number): HeaderTooltipState | null => {
+  const locateCustomHeaderTooltip = useCallback((clientX: number, clientY: number, columnIndex: number): HeaderTooltipState | false | null => {
     const root = rootRef.current;
     const canvas = canvasRef.current;
     if (!root || !canvas || columnIndex < 0) return null;
@@ -2895,7 +2919,14 @@ function TableInner<Row extends object>({
       const rect = target.getBoundingClientRect();
       if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) continue;
       const label = target.dataset.rvgTooltip?.trim();
-      if (!label) return null;
+      if (!label) return false;
+      const visibleText = target.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+      const candidates = [target, ...target.querySelectorAll<HTMLElement>('*')];
+      const truncated = candidates.some((candidate) => (
+        candidate.scrollWidth > candidate.clientWidth + 1
+        || candidate.scrollHeight > candidate.clientHeight + 1
+      ));
+      if (!truncated && label.replace(/\s+/g, ' ').trim() === visibleText) return false;
       const rawLeft = rect.left - canvasRect.left;
       return {
         key: `content:${columnIndex}:${label}:${Math.round(rawLeft)}:${Math.round(rect.top - canvasRect.top)}`,
@@ -3271,6 +3302,7 @@ function TableInner<Row extends object>({
           } as CSSProperties}
         >
           <span
+            style={{ width: '100%' }}
             ref={(node) => {
               if (node) {
                 customHeaderContentRefs.current.set(column.key, node);
@@ -3701,13 +3733,15 @@ function TableInner<Row extends object>({
             const hoveredAction = inLeafHeader ? locateHeaderAction(event.clientX, columnIndex) : null;
             const hoveredDragHandle = Boolean(hoveredHeaderCell && locateHeaderCellDragHandle(event.clientX, hoveredHeaderCell));
             const hoveredDragColumnIndex = hoveredHeaderCell?.startIndex ?? columnIndex;
-            const hoveredContentTooltip = inHeader && !hoveredAction && !hoveredDragHandle
+            const customHeaderTooltipMatch = inHeader && !hoveredAction && !hoveredDragHandle
               ? locateCustomHeaderTooltip(event.clientX, event.clientY, columnIndex)
               : null;
+            const hoveredContentTooltip = customHeaderTooltipMatch || null;
+            const hoveredCustomContent = customHeaderTooltipMatch !== null;
             const hoveredTitle = inHeader
               && !hoveredAction
               && !hoveredDragHandle
-              && !hoveredContentTooltip
+              && !hoveredCustomContent
               && hoveredHeaderCell
               && Boolean(hoveredHeaderCell.column.title)
               && isPointerOnHeaderTitle(event.clientX, event.clientY, hoveredHeaderCell)

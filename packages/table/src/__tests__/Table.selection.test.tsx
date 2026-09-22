@@ -2,7 +2,7 @@
 import { createRef, type CSSProperties } from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveColumnDropIndex, resolveColumnDropPlacement, Table } from '../Table';
+import { resolveColumnDropHighlightRange, resolveColumnDropIndex, resolveColumnDropPlacement, Table } from '../Table';
 import type { GridColumn, TableRef } from '../types';
 
 const rows = [{ id: 1, name: 'One' }, { id: 2, name: 'Two' }, { id: 3, name: 'Three' }];
@@ -29,6 +29,17 @@ describe('Table column reorder placement', () => {
   it('keeps the reported placement aligned with the hovered edge', () => {
     expect(resolveColumnDropPlacement('left')).toBe('before');
     expect(resolveColumnDropPlacement('right')).toBe('after');
+  });
+
+  it('highlights the column whose right edge is used as the drop guide', () => {
+    const cells = [
+      { startIndex: 0, endIndex: 0, level: 0 },
+      { startIndex: 1, endIndex: 1, level: 0 },
+      { startIndex: 2, endIndex: 2, level: 0 },
+    ];
+
+    expect(resolveColumnDropHighlightRange(cells[2], 'left', cells)).toEqual({ startIndex: 1, endIndex: 1 });
+    expect(resolveColumnDropHighlightRange(cells[1], 'right', cells)).toEqual({ startIndex: 1, endIndex: 1 });
   });
 
 
@@ -295,6 +306,7 @@ describe('Table utility column options', () => {
     expect(icons.length).toBe(3);
     expect(header.style.getPropertyValue('--rvg-header-action-width')).toBe('48px');
     expect(header.style.width).toBe('400px');
+    expect(header.querySelector<HTMLElement>(':scope > span')?.style.width).toBe('100%');
     expect(header.classList.contains('is-header-hovered')).toBe(false);
     fireEvent.mouseMove(view.container.querySelector('canvas')!, { clientX: 80, clientY: 10 });
     expect(header.classList.contains('is-header-hovered')).toBe(true);
@@ -333,6 +345,41 @@ describe('Table utility column options', () => {
       act(() => vi.advanceTimersByTime(1000));
       expect(view.getByRole('tooltip').textContent).toBe('customer name');
       expect(view.getByRole('tooltip').style.top).toBe('42px');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows a custom header tooltip only when its visible text is truncated', () => {
+    vi.useFakeTimers();
+    try {
+      const tooltipColumns: GridColumn<(typeof rows)[number]>[] = [{
+        key: 'name',
+        title: 'Name',
+        dataIndex: 'name',
+        width: 400,
+        renderHeader: () => <div data-rvg-tooltip="Name">Name</div>,
+      }];
+      const view = render(<Table columns={tooltipColumns} rows={rows} rowNumber={false} />);
+      const canvas = view.container.querySelector('canvas')!;
+      const target = view.container.querySelector<HTMLElement>('[data-rvg-tooltip]')!;
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 200, width: 400, height: 200, x: 0, y: 0, toJSON: () => ({}) });
+      target.getBoundingClientRect = () => ({ left: 10, top: 6, right: 110, bottom: 22, width: 100, height: 16, x: 10, y: 6, toJSON: () => ({}) });
+      Object.defineProperties(target, {
+        clientWidth: { configurable: true, value: 100 },
+        scrollWidth: { configurable: true, value: 100, writable: true },
+        clientHeight: { configurable: true, value: 16 },
+        scrollHeight: { configurable: true, value: 16 },
+      });
+
+      fireEvent.mouseMove(canvas, { clientX: 20, clientY: 12 });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(view.queryByRole('tooltip')).toBeNull();
+
+      Object.defineProperty(target, 'scrollWidth', { configurable: true, value: 140 });
+      fireEvent.mouseMove(canvas, { clientX: 21, clientY: 12 });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(view.getByRole('tooltip').textContent).toBe('Name');
     } finally {
       vi.useRealTimers();
     }

@@ -78,7 +78,7 @@ const COLORS = {
   rowHoverFill: '#f6f9fc',
   editedFill: '#fff1b8',
   insertedFill: '#c8ead4',
-  columnDropTargetFill: '#eeeeee',
+  columnDropTargetFill: '#e2edf9',
   stripe: '#fafbfc',
 };
 
@@ -197,15 +197,17 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const row = rows[rowIndex];
       const rowKey = getRowKey(row, rowIndex);
       const trailingRowStyle = options.rowStyle?.(row, rowIndex);
-      let fill = striped && rowIndex % 2 === 1 ? colors.stripe : null;
-      if (trailingRowStyle?.backgroundColor) fill = trailingRowStyle.backgroundColor;
-      if (selectedRowKeys.has(rowKey)) fill = colors.axisSelectionFill;
-      if (hoveredRowIndex === rowIndex) fill = colors.rowHoverFill;
-      if (highlightInsertedRows && insertedRowKeys.has(rowKey)) fill = colors.insertedFill;
-      if (!fill) continue;
       const y = bodyTop + rowIndex * rowHeight - scrollTop + getRowDragOffset(rowIndex);
-      ctx.fillStyle = fill;
-      ctx.fillRect(trailingBlankStart, y, width - trailingBlankStart, rowHeight);
+      const paintTrailingLayer = (fill: string | undefined) => {
+        if (!fill) return;
+        ctx.fillStyle = fill;
+        ctx.fillRect(trailingBlankStart, y, width - trailingBlankStart, rowHeight);
+      };
+      if (striped && rowIndex % 2 === 1) paintTrailingLayer(colors.stripe);
+      paintTrailingLayer(trailingRowStyle?.backgroundColor);
+      if (selectedRowKeys.has(rowKey)) paintTrailingLayer(colors.axisSelectionFill);
+      if (hoveredRowIndex === rowIndex) paintTrailingLayer(colors.rowHoverFill);
+      if (highlightInsertedRows && insertedRowKeys.has(rowKey)) paintTrailingLayer(colors.insertedFill);
     }
   }
 
@@ -235,6 +237,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const cellWidth = getCellWidth(columnIndex, colSpan);
       const cellHeight = rowHeight * rowSpan;
       const isAxisSelected = selectedRowKeys.has(rowKey) || selectedColumnKeys.has(column.key);
+      const isColumnDropTarget = Boolean(columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex);
       const rangeRowStart = selectionRange ? Math.min(selectionRange.anchor.rowIndex, selectionRange.focus.rowIndex) : -1;
       const rangeRowEnd = selectionRange ? Math.max(selectionRange.anchor.rowIndex, selectionRange.focus.rowIndex) : -1;
       const rangeColumnStart = selectionRange ? Math.min(selectionRange.anchor.columnIndex, selectionRange.focus.columnIndex) : -1;
@@ -258,10 +261,6 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       if (hoveredRowIndex === rowIndex) {
         ctx.fillStyle = colors.rowHoverFill;
-        ctx.fillRect(x, y, cellWidth, cellHeight);
-      }
-      if (columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex) {
-        ctx.fillStyle = colors.columnDropTargetFill;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       if (highlightInsertedRows && insertedRowKeys.has(rowKey)) {
@@ -292,6 +291,10 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillStyle = annotation.color;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
+      if (isColumnDropTarget) {
+        ctx.fillStyle = colors.columnDropTargetFill;
+        ctx.fillRect(x, y, cellWidth, cellHeight);
+      }
       ctx.fillStyle = colors.grid;
       if (!verticalBorderless && !(frameBorderless && columnIndex + colSpan >= columns.length)) {
         ctx.fillRect(x + cellWidth - 1, y, 1, cellHeight);
@@ -301,7 +304,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillRect(x, y + cellHeight - 1, cellWidth, 1);
       }
       if (rowSpan > 1) {
-        const mergedFill = annotation?.type === 'background'
+        const mergedFill = isColumnDropTarget
+          ? colors.columnDropTargetFill
+          : annotation?.type === 'background'
           ? annotation.color
           : isSelectedCell || isRangeCell
             ? colors.selectionFill
@@ -320,7 +325,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         }
       }
       if (colSpan > 1 && !verticalBorderless) {
-        const mergedFill = annotation?.type === 'background'
+        const mergedFill = isColumnDropTarget
+          ? colors.columnDropTargetFill
+          : annotation?.type === 'background'
           ? annotation.color
           : isSelectedCell || isRangeCell
             ? colors.selectionFill
@@ -432,7 +439,9 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
           ctx.beginPath();
           ctx.rect(x + 2, y + 1, Math.max(0, cellWidth - 4), cellHeight - 2);
           ctx.clip();
-          ctx.fillStyle = isAxisSelected && !isSelectedCell && !isRangeCell
+          ctx.fillStyle = isColumnDropTarget
+            ? colors.text
+            : isAxisSelected && !isSelectedCell && !isRangeCell
             ? colors.axisSelectionText
             : cellStyle?.color ?? rowStyle?.color ?? colors.text;
           ctx.font = createCellFont(bodyFontSize);
@@ -500,6 +509,25 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
     paintExtendedColumnSelection('scroll');
     paintExtendedColumnSelection('left');
     paintExtendedColumnSelection('right');
+    const paintExtendedColumnDropTarget = (layer: 'scroll' | 'left' | 'right') => {
+      if (!columnDropTarget) return;
+      ctx.save();
+      if (layer === 'scroll') {
+        ctx.beginPath();
+        ctx.rect(leftFixedWidth, extensionTop, Math.max(0, rightFixedLeft - leftFixedWidth), extensionHeight);
+        ctx.clip();
+      }
+      ctx.fillStyle = colors.columnDropTargetFill;
+      for (let columnIndex = columnDropTarget.startIndex; columnIndex <= columnDropTarget.endIndex; columnIndex += 1) {
+        if (layer === 'scroll' ? columns[columnIndex]?.fixed !== undefined : columns[columnIndex]?.fixed !== layer) continue;
+        if (layer === 'scroll' && (columnIndex < range.columnStart || columnIndex >= range.columnEnd)) continue;
+        ctx.fillRect(getColumnX(columnIndex), extensionTop, metrics[columnIndex].width, extensionHeight);
+      }
+      ctx.restore();
+    };
+    paintExtendedColumnDropTarget('scroll');
+    paintExtendedColumnDropTarget('left');
+    paintExtendedColumnDropTarget('right');
     if (!verticalBorderless) {
       paintExtendedColumnLines('scroll');
       paintExtendedColumnLines('left');
@@ -524,11 +552,12 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
     const isAxisSelected = selectedColumnKeys.has(columns[columnIndex].key);
+    const isColumnDropTarget = Boolean(columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex);
     if (isAxisSelected) {
       ctx.fillStyle = colors.axisSelectionFill;
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
-    if (columnDropTarget && columnIndex >= columnDropTarget.startIndex && columnIndex <= columnDropTarget.endIndex) {
+    if (isColumnDropTarget) {
       ctx.fillStyle = colors.columnDropTargetFill;
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
@@ -557,7 +586,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.beginPath();
       ctx.rect(x + 2, headerY + headerLeafTop + 1, Math.max(0, clipWidth - 4), headerLeafHeight - 2);
       ctx.clip();
-      ctx.fillStyle = isAxisSelected ? colors.axisSelectionText : colors.muted;
+      ctx.fillStyle = isColumnDropTarget ? colors.muted : isAxisSelected ? colors.axisSelectionText : colors.muted;
       ctx.textAlign = titleAlign === 'right' ? 'right' : titleAlign === 'center' ? 'center' : 'left';
       ctx.fillText(title, textX, headerY + headerLeafTop + headerLeafHeight / 2);
       ctx.restore();

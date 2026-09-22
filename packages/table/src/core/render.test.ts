@@ -71,7 +71,7 @@ describe('paintGrid trailing decoration', () => {
       range: { rowStart: 0, rowEnd: 2, columnStart: 0, columnEnd: 1 },
       selection: null,
       editing: null,
-      hoveredRowIndex: null,
+      hoveredRowIndex: 1,
       selectionRange: null,
       selectedRowKeys: new Set([2]),
       rowSelectionMode: 'single',
@@ -85,14 +85,18 @@ describe('paintGrid trailing decoration', () => {
       cellAnnotations: new Map(),
       getRowKey: (row) => row.id,
       rowDragPreview: null,
-      columnDropTarget: null,
+      columnDropTarget: { startIndex: 0, endIndex: 0 },
       colors: {
         axisSelectionFill: '#selected-row',
+        columnDropTargetFill: '#drop-target',
+        rowHoverFill: 'transparent',
         stripe: '#stripe-row',
       },
     });
 
     expect(fills).toContainEqual({ color: '#focus-row', x: 200, y: 40, width: 200, height: 20 });
+    expect(fills).toContainEqual({ color: '#stripe-row', x: 200, y: 60, width: 200, height: 20 });
     expect(fills).toContainEqual({ color: '#selected-row', x: 200, y: 60, width: 200, height: 20 });
+    expect(fills).toContainEqual({ color: '#drop-target', x: 0, y: 80, width: 200, height: 80 });
   });
 });
