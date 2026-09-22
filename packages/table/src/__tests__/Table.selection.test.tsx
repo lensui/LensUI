@@ -30,6 +30,47 @@ describe('Table column reorder placement', () => {
     expect(resolveColumnDropPlacement('left')).toBe('before');
     expect(resolveColumnDropPlacement('right')).toBe('after');
   });
+
+
+  it('reorders columns through the canvas pointer gesture', () => {
+    const dragColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onColumnsReorder = vi.fn();
+    const view = render(
+      <Table
+        columns={dragColumns}
+        rows={rows}
+        rowNumber={false}
+        columnDraggable
+        onColumnsReorder={onColumnsReorder}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    canvas.releasePointerCapture = vi.fn();
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 50));
+    fireEvent(canvas, pointerEvent('pointermove', 350));
+    fireEvent(canvas, pointerEvent('pointerup', 350));
+
+    expect(onColumnsReorder).toHaveBeenCalledTimes(1);
+    expect(onColumnsReorder.mock.lastCall?.[0].map((column: GridColumn<(typeof rows)[number]>) => column.key)).toEqual(['name', 'id']);
+    expect(onColumnsReorder.mock.lastCall?.[1]).toMatchObject({
+      sourceIndex: 0,
+      targetIndex: 1,
+      sourceKey: 'id',
+      targetKey: 'name',
+      placement: 'after',
+    });
+  });
 });
 
 describe('Table utility column options', () => {
@@ -289,7 +330,7 @@ describe('Table column resize', () => {
     expect(spacer.style.width).toBe('440px');
   });
 
-  it('redistributes released width to sibling columns when a column is narrowed', () => {
+  it('keeps sibling widths unchanged and leaves trailing space when a column is narrowed', () => {
     const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
       { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
       { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
@@ -316,9 +357,65 @@ describe('Table column resize', () => {
     fireEvent(canvas, pointerEvent('pointermove', 100));
 
     expect(onColumnResize).toHaveBeenLastCalledWith('id', 100);
-    expect(spacer.style.width).toBe('400px');
+    expect(spacer.style.width).toBe('300px');
     expect(view.getByText('ID').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('100px');
-    expect(view.getByText('Name').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('300px');
+    expect(view.getByText('Name').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('200px');
+  });
+
+  it('keeps trailing decoration outside cell hit testing after resize', () => {
+    const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onSelectedCellChange = vi.fn();
+    const view = render(
+      <Table
+        columns={resizeColumns}
+        rows={rows}
+        rowNumber={false}
+        selectedCell={{ rowKey: 1, columnKey: 'name' }}
+        onSelectedCellChange={onSelectedCellChange}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    canvas.releasePointerCapture = vi.fn();
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 200));
+    fireEvent(canvas, pointerEvent('pointermove', 160));
+    fireEvent(canvas, pointerEvent('pointerup', 160));
+    fireEvent.click(canvas, { clientX: 160, clientY: 20 });
+    fireEvent.click(canvas, { clientX: 380, clientY: 55 });
+    expect(onSelectedCellChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it('allows the final column to shrink to its minimum width', () => {
+    const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onColumnResize = vi.fn();
+    const view = render(<Table columns={resizeColumns} rows={rows} rowNumber={false} onColumnResize={onColumnResize} />);
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 400));
+    fireEvent(canvas, pointerEvent('pointermove', 260));
+
+    expect(onColumnResize).toHaveBeenLastCalledWith('name', 60);
+    expect(view.container.querySelector<HTMLElement>('.rvg-spacer')?.style.width).toBe('260px');
+    expect(view.getByText('Name').closest<HTMLElement>('.rvg-header-title')?.style.width).toBe('60px');
   });
 });
 

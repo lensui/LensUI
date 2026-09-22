@@ -168,6 +168,13 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ? width - (rightOffsets.get(index) ?? 0) - metrics[index].width
         : (scrollableLefts.get(index) ?? leftFixedWidth) - scrollLeft;
   };
+  const displayedContentRight = columns.reduce((right, _column, index) => (
+    Math.max(right, getColumnX(index) + metrics[index].width)
+  ), 0);
+  const trailingBlankStart = displayedContentRight > 0 && displayedContentRight < width
+    ? displayedContentRight
+    : null;
+
   const getRowDragOffset = (rowIndex: number) => {
     if (!rowDragPreview || rowIndex === rowDragPreview.sourceIndex) return 0;
     if (rowDragPreview.sourceIndex < rowDragPreview.targetIndex) {
@@ -180,6 +187,18 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ? rowDragPreview.targetIndex + 1
       : rowDragPreview.targetIndex
     : -1;
+
+  // The area after the final real column is decorative only. Extend the
+  // alternating row background without creating hit-testable cells there.
+  if (striped && trailingBlankStart !== null) {
+    const rowStart = Math.max(0, range.rowStart);
+    for (let rowIndex = rowStart; rowIndex < range.rowEnd; rowIndex += 1) {
+      if (rowIndex % 2 === 0 || rowDragPreview?.sourceIndex === rowIndex) continue;
+      const y = bodyTop + rowIndex * rowHeight - scrollTop + getRowDragOffset(rowIndex);
+      ctx.fillStyle = colors.stripe;
+      ctx.fillRect(trailingBlankStart, y, width - trailingBlankStart, rowHeight);
+    }
+  }
 
   const paintBodyColumns = (layer: 'scroll' | 'left' | 'right') => {
   // Body cells are painted in three passes: scrolling columns, left-fixed
@@ -545,6 +564,13 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   if (rightFixedWidth > 0 && !verticalBorderless) {
     ctx.fillStyle = colors.grid;
     ctx.fillRect(rightFixedLeft - 1, 0, 1, height);
+  }
+
+  // When resized columns no longer fill the viewport, keep the real table edge
+  // visible while leaving the trailing area as non-interactive decoration.
+  if (!verticalBorderless && trailingBlankStart !== null) {
+    ctx.fillStyle = colors.grid;
+    ctx.fillRect(Math.round(trailingBlankStart) - 1, 0, 1, height);
   }
 
   // Keep the table frame in the same paint layer so selection edges can replace it.
