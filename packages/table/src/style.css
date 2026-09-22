@@ -203,7 +203,7 @@
 .rvg-header-search-icon path,
 .rvg-header-search-icon circle { fill: none; }
 .rvg-header-tooltip,
-.rvg-cell-tooltip { position: absolute; z-index: 5; max-width: 320px; padding: 4px 7px; transform: translateY(-50%); overflow: visible; border-radius: 3px; background: var(--rvg-color-tooltip-bg); box-shadow: 0 2px 8px rgba(32, 33, 36, 0.18); color: var(--rvg-color-bg); font: 12px/18px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; animation: rvg-tooltip-in 120ms ease-out both; }
+.rvg-cell-tooltip { position: absolute; z-index: 8; max-width: 320px; padding: 4px 7px; transform: translateY(-50%); overflow: visible; border-radius: 3px; background: var(--rvg-color-tooltip-bg); box-shadow: 0 2px 8px rgba(32, 33, 36, 0.18); color: var(--rvg-color-bg); font: 12px/18px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; animation: rvg-tooltip-in 120ms ease-out both; }
 .rvg-header-tooltip::after,
 .rvg-cell-tooltip::after { position: absolute; top: 50%; width: 0; height: 0; content: ''; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
 .rvg-header-tooltip.is-right::after,
@@ -212,6 +212,12 @@
 .rvg-cell-tooltip.is-left { transform: translate(-100%, -50%); }
 .rvg-header-tooltip.is-left::after,
 .rvg-cell-tooltip.is-left::after { right: -4px; border-left: 5px solid var(--rvg-color-tooltip-bg); }
+.rvg-header-tooltip.is-below,
+.rvg-cell-tooltip.is-below { transform: none; }
+.rvg-header-tooltip.is-below::after,
+.rvg-cell-tooltip.is-below::after { top: -4px; left: 10px; transform: none; border-right: 5px solid transparent; border-bottom: 5px solid var(--rvg-color-tooltip-bg); border-left: 5px solid transparent; border-top: 0; }
+.rvg-cell-tooltip.is-above { transform: translateY(-100%); }
+.rvg-cell-tooltip.is-above::after { top: auto; bottom: -4px; left: 10px; transform: none; border-right: 5px solid transparent; border-top: 5px solid var(--rvg-color-tooltip-bg); border-bottom: 0; border-left: 5px solid transparent; }
 .rvg-cell-tooltip.is-annotation::after { display: none; }
 .rvg-cell-tooltip.is-annotation { z-index: 7; width: max-content; max-width: 240px; padding: 7px 9px; transform: translateY(-50%); overflow: visible; border-radius: 4px; box-shadow: 0 4px 12px rgba(32, 33, 36, 0.2); line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; text-overflow: clip; }
 @keyframes rvg-tooltip-in {
@@ -219,6 +225,7 @@
   to { opacity: 1; filter: blur(0); }
 }
 .rvg-column-guide { position: absolute; z-index: 3; top: 0; bottom: 0; left: -1px; display: none; width: 2px; pointer-events: none; background: var(--rvg-color-primary); }
+.rvg-column-guide.is-resizing { z-index: 7; }
 .rvg-row-guide { position: absolute; z-index: 3; top: -1px; right: 0; left: 0; display: none; height: 2px; pointer-events: none; background: var(--rvg-color-primary); }
 .rvg-range-handle { position: absolute; z-index: 6; width: 8px; height: 8px; transform: translate(-100%, -100%); border: 0; background: var(--rvg-color-primary); box-shadow: none; cursor: crosshair; touch-action: none; }
 .rvg-filter { position: absolute; z-index: 9; width: 220px; padding: 8px; border: 1px solid var(--rvg-color-border); background: var(--rvg-color-bg); box-shadow: var(--rvg-shadow-soft); }

@@ -35,7 +35,7 @@ interface PaintOptions<Row extends object> {
   columnDraggable: boolean;
   sortState: GridSortState | null;
   filterValues: Record<string, string>;
-  hoveredHeaderAction: { columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null;
+  hoveredHeaderAction: { columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' | 'content' } | null;
   rows: Row[];
   rowStyle?: (row: Row, rowIndex: number) => { color?: string; backgroundColor?: string };
   columns: PaintColumn<Row>[];
@@ -82,7 +82,7 @@ const COLORS = {
   stripe: '#fafbfc',
 };
 
-function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+export function ellipsizeText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   if (maxWidth <= 0) return '';
   if (context.measureText(text).width <= maxWidth) return text;
   const ellipsis = '...';
@@ -188,14 +188,23 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       : rowDragPreview.targetIndex
     : -1;
 
-  // The area after the final real column is decorative only. Extend the
-  // alternating row background without creating hit-testable cells there.
-  if (striped && trailingBlankStart !== null) {
+  // The area after the final real column is decorative only. Mirror each row's
+  // background state there without creating text, cells, or hit targets.
+  if (trailingBlankStart !== null) {
     const rowStart = Math.max(0, range.rowStart);
     for (let rowIndex = rowStart; rowIndex < range.rowEnd; rowIndex += 1) {
-      if (rowIndex % 2 === 0 || rowDragPreview?.sourceIndex === rowIndex) continue;
+      if (rowDragPreview?.sourceIndex === rowIndex) continue;
+      const row = rows[rowIndex];
+      const rowKey = getRowKey(row, rowIndex);
+      const trailingRowStyle = options.rowStyle?.(row, rowIndex);
+      let fill = striped && rowIndex % 2 === 1 ? colors.stripe : null;
+      if (trailingRowStyle?.backgroundColor) fill = trailingRowStyle.backgroundColor;
+      if (selectedRowKeys.has(rowKey)) fill = colors.axisSelectionFill;
+      if (hoveredRowIndex === rowIndex) fill = colors.rowHoverFill;
+      if (highlightInsertedRows && insertedRowKeys.has(rowKey)) fill = colors.insertedFill;
+      if (!fill) continue;
       const y = bodyTop + rowIndex * rowHeight - scrollTop + getRowDragOffset(rowIndex);
-      ctx.fillStyle = colors.stripe;
+      ctx.fillStyle = fill;
       ctx.fillRect(trailingBlankStart, y, width - trailingBlankStart, rowHeight);
     }
   }
@@ -429,7 +438,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
           ctx.font = createCellFont(bodyFontSize);
           ctx.textBaseline = 'alphabetic';
           ctx.textAlign = column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left';
-          ctx.fillText(label, textX, y + cellHeight / 2 + cellBaselineOffset);
+          ctx.fillText(ellipsizeText(ctx, label, Math.max(0, cellWidth - padding * 2)), textX, y + cellHeight / 2 + cellBaselineOffset);
           ctx.restore();
         }
       }

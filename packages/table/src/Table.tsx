@@ -99,11 +99,11 @@ interface HeaderCell<Row> {
 interface HeaderTooltipState {
   key: string;
   columnIndex: number;
-  action: 'sort' | 'filter' | 'drag' | 'title';
+  action: 'sort' | 'filter' | 'drag' | 'title' | 'content';
   left: number;
   top: number;
   label: string;
-  placement: 'left' | 'right';
+  placement: 'left' | 'right' | 'below';
 }
 
 interface HeaderResizeHit<Row> {
@@ -542,7 +542,7 @@ function TableInner<Row extends object>({
   const hasCompletedLoadRef = useRef(!loading);
   const columnDragPreviewRef = useRef<{ sourceIndex: number; targetIndex: number } | null>(null);
   const validColumnDropRef = useRef<ColumnDropState | null>(null);
-  const hoveredHeaderActionRef = useRef<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
+  const hoveredHeaderActionRef = useRef<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' | 'content' } | null>(null);
   const hoveredRowIndexRef = useRef<number | null>(null);
 
   // viewport and scrollPosition are React state because they affect rendered
@@ -680,9 +680,9 @@ function TableInner<Row extends object>({
   const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
   const [resizeGuideTop, setResizeGuideTop] = useState(0);
   const [hoveredHeaderColumnIndex, setHoveredHeaderColumnIndex] = useState<number | null>(null);
-  const [hoveredHeaderAction, setHoveredHeaderAction] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' } | null>(null);
+  const [hoveredHeaderAction, setHoveredHeaderAction] = useState<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' | 'content' } | null>(null);
   const [visibleHeaderTooltip, setVisibleHeaderTooltip] = useState<HeaderTooltipState | null>(null);
-  const [hoveredCellTooltip, setHoveredCellTooltip] = useState<{ rowIndex: number; columnIndex: number; left: number; top: number; label: string; color?: string; annotation?: boolean; placement?: 'left' | 'right' } | null>(null);
+  const [hoveredCellTooltip, setHoveredCellTooltip] = useState<{ rowIndex: number; columnIndex: number; left: number; top: number; label: string; color?: string; annotation?: boolean; placement?: 'left' | 'right' | 'above' | 'below' } | null>(null);
 
   const hideDragTooltips = useCallback(() => {
     if (headerTooltipTimerRef.current !== null) {
@@ -2618,6 +2618,8 @@ function TableInner<Row extends object>({
     columnDragRef.current = null;
     setResizeGuideX(null);
     setResizeGuideTop(0);
+    document.documentElement.classList.remove('rvg-is-dragging');
+    event.currentTarget.style.cursor = 'default';
   }, []);
 
   const clearColumnOrderPointerDrag = useCallback((canvas: HTMLCanvasElement) => {
@@ -2882,6 +2884,31 @@ function TableInner<Row extends object>({
     const textTop = rowTop + 8;
     return localX >= textLeft - 4 && localX <= textLeft + textWidth + 4 && localY >= textTop - 2 && localY <= textTop + 18;
   }, [columnDraggable, fixedHeader, getHeaderCellLeft, getHeaderCellWidth, headerActionSlotWidth, headerRowOffsets]);
+
+  const locateCustomHeaderTooltip = useCallback((clientX: number, clientY: number, columnIndex: number): HeaderTooltipState | null => {
+    const root = rootRef.current;
+    const canvas = canvasRef.current;
+    if (!root || !canvas || columnIndex < 0) return null;
+    const canvasRect = canvas.getBoundingClientRect();
+    const targets = root.querySelectorAll<HTMLElement>('.rvg-header-title [data-rvg-tooltip]');
+    for (const target of targets) {
+      const rect = target.getBoundingClientRect();
+      if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) continue;
+      const label = target.dataset.rvgTooltip?.trim();
+      if (!label) return null;
+      const rawLeft = rect.left - canvasRect.left;
+      return {
+        key: `content:${columnIndex}:${label}:${Math.round(rawLeft)}:${Math.round(rect.top - canvasRect.top)}`,
+        columnIndex,
+        action: 'content',
+        left: Math.max(8, Math.min(rawLeft, Math.max(8, viewport.width - 328))),
+        top: rect.bottom - canvasRect.top + 4,
+        label,
+        placement: 'below',
+      };
+    }
+    return null;
+  }, [viewport.width]);
 
   const headerTooltip = (() => {
     if (!visibleHeaderTooltip) return null;
@@ -3226,20 +3253,22 @@ function TableInner<Row extends object>({
     if (column.renderHeader) {
       const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
       const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth;
+      const isHeaderHovered = hoveredHeaderColumnIndex === columnIndex;
       return (
         <div
           key={column.key}
-          className={`rvg-header-title is-custom${isAxisSelected ? ' is-axis-selected' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+          className={`rvg-header-title is-custom${isHeaderHovered ? ' is-header-hovered' : ''}${isAxisSelected ? ' is-axis-selected' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
           data-level={headerDepth - 1}
           data-measure-key={column.key}
           style={{
             left,
             top: leafTop,
-            width: Math.max(0, metrics[columnIndex].width - actionWidth),
+            width: metrics[columnIndex].width,
             height: headerLeafHeight,
+            '--rvg-header-action-width': `${actionWidth}px`,
             justifyContent: column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start',
             textAlign: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
-          }}
+          } as CSSProperties}
         >
           <span
             ref={(node) => {
@@ -3672,9 +3701,13 @@ function TableInner<Row extends object>({
             const hoveredAction = inLeafHeader ? locateHeaderAction(event.clientX, columnIndex) : null;
             const hoveredDragHandle = Boolean(hoveredHeaderCell && locateHeaderCellDragHandle(event.clientX, hoveredHeaderCell));
             const hoveredDragColumnIndex = hoveredHeaderCell?.startIndex ?? columnIndex;
+            const hoveredContentTooltip = inHeader && !hoveredAction && !hoveredDragHandle
+              ? locateCustomHeaderTooltip(event.clientX, event.clientY, columnIndex)
+              : null;
             const hoveredTitle = inHeader
               && !hoveredAction
               && !hoveredDragHandle
+              && !hoveredContentTooltip
               && hoveredHeaderCell
               && Boolean(hoveredHeaderCell.column.title)
               && isPointerOnHeaderTitle(event.clientX, event.clientY, hoveredHeaderCell)
@@ -3683,6 +3716,8 @@ function TableInner<Row extends object>({
               ? { columnIndex, action: hoveredAction }
               : hoveredDragHandle
                 ? { columnIndex: hoveredDragColumnIndex, action: 'drag' as const }
+                : hoveredContentTooltip
+                  ? { columnIndex, action: 'content' as const }
                 : hoveredTitle
                   ? { columnIndex: hoveredHeaderCell.startIndex, action: 'title' as const }
                 : null;
@@ -3690,6 +3725,8 @@ function TableInner<Row extends object>({
               ? createHeaderTooltip(hoveredAction, columnIndex, hoveredHeaderCell)
               : hoveredDragHandle && hoveredHeaderCell
                 ? createHeaderTooltip('drag', hoveredDragColumnIndex, hoveredHeaderCell)
+                : hoveredContentTooltip
+                  ? hoveredContentTooltip
                 : hoveredTitle && hoveredHeaderCell
                   ? createHeaderTooltip('title', hoveredHeaderCell.startIndex, hoveredHeaderCell)
                   : null;
@@ -3697,9 +3734,9 @@ function TableInner<Row extends object>({
             if (previousHover?.columnIndex !== nextHover?.columnIndex || previousHover?.action !== nextHover?.action) {
               hoveredHeaderActionRef.current = nextHover;
               setHoveredHeaderAction(nextHover);
-              showHeaderTooltipAfterDelay(nextTooltip);
               scheduleDraw();
             }
+            showHeaderTooltipAfterDelay(nextTooltip);
             if (inHeader) {
               if (hoveredRowIndexRef.current !== null) {
                 hoveredRowIndexRef.current = null;
@@ -3763,12 +3800,12 @@ function TableInner<Row extends object>({
                     if (!isInsideText) {
                       showCellTooltipAfterDelay(null);
                     } else {
-                      const placement: 'left' | 'right' = textRight + 330 > viewport.width ? 'left' : 'right';
+                      const placement: 'above' | 'below' = cellTop + rowHeight + 36 > renderHeight ? 'above' : 'below';
                       const nextTooltip = {
                         rowIndex: cell.rowIndex,
                         columnIndex: cell.columnIndex,
-                        left: placement === 'right' ? textRight + 16 : Math.max(8, textLeft - 16),
-                        top: cellTop + rowHeight / 2,
+                        left: Math.max(8, Math.min(textLeft, Math.max(8, viewport.width - 328))),
+                        top: placement === 'below' ? cellTop + rowHeight + 4 : cellTop - 4,
                         label,
                         placement,
                       };
@@ -3807,6 +3844,8 @@ function TableInner<Row extends object>({
             }
           }}
           onPointerDown={(event) => {
+            handleColumnPointerDown(event);
+            if (columnDragRef.current) return;
             const headerDragCell = columnDraggable ? locateHeaderCell(event.clientX, event.clientY) : null;
             const columnIndex = locateColumn(event.clientX);
             const rowDragHandle = rowDraggable
@@ -3818,8 +3857,7 @@ function TableInner<Row extends object>({
               document.documentElement.classList.add('rvg-is-dragging');
               event.currentTarget.style.cursor = 'move';
             }
-            handleColumnPointerDown(event);
-            if (!columnDragRef.current) handleColumnOrderPointerDown(event);
+            handleColumnOrderPointerDown(event);
             beginRangeDrag(event);
           }}
           onPointerMove={(event) => {
@@ -3881,6 +3919,14 @@ function TableInner<Row extends object>({
             }
             const cell = locateCell(event.clientX, event.clientY);
             if (!cell) {
+              const localX = event.clientX - rect.left;
+              const trailingRowIndex = trailingColumnBorderLeft !== null && localX > trailingColumnBorderLeft
+                ? locateRow(event.clientY)
+                : -1;
+              if (trailingRowIndex >= 0 && rowSelection) {
+                selectRow(trailingRowIndex, event);
+                return;
+              }
               clickedCellRef.current = null;
               setSelectionRange(null);
               setSelection(null);

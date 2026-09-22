@@ -290,11 +290,52 @@ describe('Table utility column options', () => {
     }];
     const view = render(<Table columns={actionColumns} rows={rows} rowNumber={false} columnDraggable />);
     const icons = [...view.container.querySelectorAll<HTMLElement>('.rvg-header-icon')];
+    const header = view.container.querySelector<HTMLElement>('.rvg-header-title.is-custom')!;
 
     expect(icons.length).toBe(3);
+    expect(header.style.getPropertyValue('--rvg-header-action-width')).toBe('48px');
+    expect(header.style.width).toBe('400px');
+    expect(header.classList.contains('is-header-hovered')).toBe(false);
+    fireEvent.mouseMove(view.container.querySelector('canvas')!, { clientX: 80, clientY: 10 });
+    expect(header.classList.contains('is-header-hovered')).toBe(true);
     expect(icons[0].style.top).toBe('9px');
     expect(icons[1].style.top).toBe('9px');
     expect(icons[2].style.top).toBe('10px');
+  });
+
+  it('aligns custom header metadata tooltips with their text and keeps them above grid lines', () => {
+    vi.useFakeTimers();
+    try {
+      const tooltipColumns: GridColumn<(typeof rows)[number]>[] = [{
+        key: 'name',
+        title: 'Name',
+        dataIndex: 'name',
+        width: 400,
+        renderHeader: () => <div><div data-rvg-tooltip="varchar(180)">varchar</div><div data-rvg-tooltip="customer name">comment</div></div>,
+      }];
+      const view = render(<Table columns={tooltipColumns} rows={rows} rowNumber={false} />);
+      const canvas = view.container.querySelector('canvas')!;
+      const [typeTarget, commentTarget] = [...view.container.querySelectorAll<HTMLElement>('[data-rvg-tooltip]')];
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 200, width: 400, height: 200, x: 0, y: 0, toJSON: () => ({}) });
+      typeTarget.getBoundingClientRect = () => ({ left: 10, top: 6, right: 100, bottom: 22, width: 90, height: 16, x: 10, y: 6, toJSON: () => ({}) });
+      commentTarget.getBoundingClientRect = () => ({ left: 10, top: 22, right: 100, bottom: 38, width: 90, height: 16, x: 10, y: 22, toJSON: () => ({}) });
+
+      fireEvent.mouseMove(canvas, { clientX: 20, clientY: 12 });
+      act(() => vi.advanceTimersByTime(1000));
+
+      const tooltip = view.getByRole('tooltip');
+      expect(tooltip.textContent).toBe('varchar(180)');
+      expect(tooltip.classList.contains('is-below')).toBe(true);
+      expect(tooltip.style.left).toBe('10px');
+      expect(tooltip.style.top).toBe('26px');
+
+      fireEvent.mouseMove(canvas, { clientX: 20, clientY: 28 });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(view.getByRole('tooltip').textContent).toBe('customer name');
+      expect(view.getByRole('tooltip').style.top).toBe('42px');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -328,6 +369,31 @@ describe('Table column resize', () => {
 
     expect(onColumnResize).toHaveBeenLastCalledWith('id', 240);
     expect(spacer.style.width).toBe('440px');
+  });
+
+  it('restores the cursor after resizing inside the overlapping drag-handle edge', () => {
+    const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const view = render(<Table columns={resizeColumns} rows={rows} rowNumber={false} columnDraggable />);
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    canvas.releasePointerCapture = vi.fn();
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 196));
+    fireEvent(canvas, pointerEvent('pointermove', 176));
+    fireEvent(canvas, pointerEvent('pointerup', 176));
+
+    expect(document.documentElement.classList.contains('rvg-is-dragging')).toBe(false);
+    expect(canvas.style.cursor).toBe('default');
+    expect(canvas.releasePointerCapture).toHaveBeenCalledWith(1);
   });
 
   it('keeps sibling widths unchanged and leaves trailing space when a column is narrowed', () => {
@@ -397,6 +463,44 @@ describe('Table column resize', () => {
     fireEvent.click(canvas, { clientX: 160, clientY: 20 });
     fireEvent.click(canvas, { clientX: 380, clientY: 55 });
     expect(onSelectedCellChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it('selects the corresponding row when trailing decoration is clicked', () => {
+    const resizeColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onSelectedRowChange = vi.fn();
+    const view = render(
+      <Table
+        columns={resizeColumns}
+        rows={rows}
+        rowNumber={false}
+        rowSelection={{ mode: 'multiple', indicator: 'none', columnWidth: 24 }}
+        onSelectedRowChange={onSelectedRowChange}
+      />,
+    );
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    canvas.releasePointerCapture = vi.fn();
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 400));
+    fireEvent(canvas, pointerEvent('pointermove', 280));
+    fireEvent(canvas, pointerEvent('pointerup', 280));
+    // Column resizing suppresses the immediately following click so releasing
+    // the pointer cannot accidentally activate content under the resize handle.
+    fireEvent.click(canvas, { clientX: 380, clientY: 180 });
+    fireEvent.click(canvas, { clientX: 380, clientY: 55 });
+    expect(onSelectedRowChange).toHaveBeenLastCalledWith([1], [rows[0]], [0]);
+
+    fireEvent.click(canvas, { clientX: 380, clientY: 95, ctrlKey: true });
+    expect(onSelectedRowChange).toHaveBeenLastCalledWith([1, 2], [rows[0], rows[1]], [0, 1]);
   });
 
   it('allows the final column to shrink to its minimum width', () => {
