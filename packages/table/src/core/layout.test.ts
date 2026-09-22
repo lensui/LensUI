@@ -31,9 +31,9 @@ describe('virtual layout', () => {
     ], { viewportWidth: 600 });
 
     expect(stretched).toEqual([
-      { left: 0, right: 140, width: 140 },
-      { left: 140, right: 320, width: 180 },
-      { left: 320, right: 500, width: 180 },
+      { left: 0, right: 100, width: 100 },
+      { left: 100, right: 300, width: 200 },
+      { left: 300, right: 500, width: 200 },
       { left: 500, right: 600, width: 100 },
     ]);
   });

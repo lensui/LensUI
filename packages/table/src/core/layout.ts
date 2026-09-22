@@ -13,7 +13,7 @@ type LayoutColumn<Row> = GridColumn<Row> & {
  * mounted in the DOM, so layout is calculated from data rather than measuring
  * rendered cells.
  */
-export const DEFAULT_COLUMN_WIDTH = 140;
+export const DEFAULT_COLUMN_WIDTH = 100;
 
 /**
  * Cached horizontal geometry for one column.

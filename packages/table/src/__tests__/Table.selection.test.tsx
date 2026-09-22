@@ -71,7 +71,10 @@ describe('Table column reorder placement', () => {
     fireEvent(canvas, pointerEvent('pointerdown', 50));
     fireEvent(canvas, pointerEvent('pointermove', 350));
 
-    expect(view.container.querySelector('.rvg-column-drag-preview')).not.toBeNull();
+    const preview = view.container.querySelector<HTMLElement>('.rvg-column-drag-preview');
+    expect(preview).not.toBeNull();
+    expect(preview?.style.top).toBe('0px');
+    expect(preview?.style.height).toBe('148px');
     fireEvent(canvas, pointerEvent('pointerup', 350));
 
     expect(onColumnsReorder).toHaveBeenCalledTimes(1);
@@ -84,6 +87,58 @@ describe('Table column reorder placement', () => {
       targetKey: 'name',
       placement: 'after',
     });
+  });
+
+  it('reorders onto an adjacent column whenever that column is highlighted', () => {
+    const dragColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const onColumnsReorder = vi.fn();
+    const view = render(<Table columns={dragColumns} rows={rows} rowNumber={false} columnDraggable onColumnsReorder={onColumnsReorder} />);
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    canvas.releasePointerCapture = vi.fn();
+    const pointerEvent = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY: 20 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      return event;
+    };
+
+    fireEvent(canvas, pointerEvent('pointerdown', 250));
+    fireEvent(canvas, pointerEvent('pointermove', 75));
+
+    expect(view.container.querySelector('.rvg-header-title.is-drop-target')?.textContent).toBe('ID');
+    fireEvent(canvas, pointerEvent('pointerup', 75));
+    expect(onColumnsReorder).toHaveBeenCalledTimes(1);
+    expect(onColumnsReorder.mock.lastCall?.[0].map((column: GridColumn<(typeof rows)[number]>) => column.key)).toEqual(['name', 'id']);
+  });
+
+  it('shows the full column preview as soon as a header long press activates', () => {
+    vi.useFakeTimers();
+    const dragColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const view = render(<Table columns={dragColumns} rows={rows} rowNumber={false} columnDraggable />);
+    const canvas = view.container.querySelector('canvas')!;
+    canvas.setPointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    canvas.releasePointerCapture = vi.fn();
+    const event = new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 50, clientY: 20 });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+
+    fireEvent(canvas, event);
+    expect(view.container.querySelector('.rvg-column-drag-preview')).toBeNull();
+    act(() => { vi.advanceTimersByTime(320); });
+
+    expect(view.container.querySelector<HTMLElement>('.rvg-column-drag-preview')?.style.height).toBe('148px');
+    expect(document.documentElement.classList.contains('rvg-is-dragging')).toBe(true);
+    const cancelEvent = new MouseEvent('pointercancel', { bubbles: true, button: 0, clientX: 50, clientY: 20 });
+    Object.defineProperty(cancelEvent, 'pointerId', { value: 1 });
+    fireEvent(canvas, cancelEvent);
+    vi.useRealTimers();
   });
 });
 

@@ -16,6 +16,8 @@
   --rvg-color-selection-fill: #edf4ff;
   --rvg-color-axis-selection-fill: #e8f2ff;
   --rvg-color-axis-selection-text: var(--rvg-color-text);
+  --rvg-color-axis-selection-drag-fill: #d8e8f8;
+  --rvg-color-axis-selection-drag-text: #325b88;
   --rvg-color-column-drop-target-fill: #e2edf9;
   --rvg-color-range-fill: #e8f1ff;
   --rvg-color-row-hover-fill: #f6f9fc;
@@ -176,6 +178,7 @@
 .rvg-header-group.is-leaf { z-index: 2; }
 .rvg-header-title.is-drop-target { background: var(--rvg-color-column-drop-target-fill); }
 .rvg-header-title.is-axis-selected { background: var(--rvg-color-axis-selection-fill); color: var(--rvg-color-axis-selection-text); }
+.rvg-root.is-dragging-selected-column .rvg-header-title.is-axis-selected { background: var(--rvg-color-axis-selection-drag-fill); color: var(--rvg-color-axis-selection-drag-text); }
 .rvg-text-fixed-shadow { position: absolute; z-index: 4; top: 0; bottom: 0; width: 10px; pointer-events: none; }
 .rvg-text-fixed-shadow.is-left { background: linear-gradient(90deg, rgba(5, 5, 5, 0.06), transparent); }
 .rvg-text-fixed-shadow.is-right { background: linear-gradient(90deg, transparent, rgba(5, 5, 5, 0.06)); }
@@ -293,10 +296,11 @@
 .rvg-confirm-actions .rvg-confirm-danger svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; transform-origin: center; animation: rvg-loading-spin .8s linear infinite; }
 .rvg-toast { position: absolute; z-index: 12; left: 50%; bottom: 20px; min-width: 96px; padding: 8px 14px; transform: translateX(-50%); border-radius: 3px; background: var(--rvg-color-tooltip-bg); color: var(--rvg-color-bg); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; text-align: center; pointer-events: none; }
 .rvg-toast.is-error { background: var(--rvg-color-danger); }
-.rvg-column-drag-preview { position: absolute; z-index: 11; overflow: hidden; border: 1px solid color-mix(in srgb, var(--rvg-color-primary) 32%, var(--rvg-color-grid)); background: color-mix(in srgb, var(--rvg-color-primary) 4%, var(--rvg-color-bg)); box-shadow: 0 8px 22px rgba(50, 91, 136, 0.2); opacity: 0.96; pointer-events: none; box-sizing: border-box; }
+.rvg-column-drag-preview { position: absolute; z-index: 11; overflow: hidden; border: 1px solid color-mix(in srgb, var(--rvg-color-primary) 38%, var(--rvg-color-grid)); background: var(--rvg-color-bg); box-shadow: 0 6px 18px rgba(50, 91, 136, 0.18); opacity: 0.94; pointer-events: none; box-sizing: border-box; }
 .rvg-column-drag-preview-header,
 .rvg-column-drag-preview-cell { position: absolute; right: 0; left: 0; display: flex; padding: 0 10px; align-items: center; overflow: hidden; border-bottom: 1px solid var(--rvg-color-grid); color: var(--rvg-color-text); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
-.rvg-column-drag-preview-header { background: color-mix(in srgb, var(--rvg-color-primary) 10%, var(--rvg-color-header-bg)); color: var(--rvg-color-text); font-weight: 600; }
+.rvg-column-drag-preview-header { background: var(--rvg-color-header-bg); color: var(--rvg-color-text); font-weight: 600; }
+.rvg-column-drag-preview-cell.is-striped { background: var(--rvg-color-stripe); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon { position: absolute; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); overflow: visible; color: var(--rvg-color-icon); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon path,
 .rvg-column-drag-preview-header .rvg-preview-header-icon circle { fill: currentColor; }

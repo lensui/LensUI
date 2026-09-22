@@ -512,6 +512,7 @@ function TableInner<Row extends object>({
     active: boolean;
     sourceCell: HeaderCell<Row>;
   } | null>(null);
+  const columnOrderLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Visual guide elements are regular DOM nodes because moving a single guide
   // with style.transform is cheaper than rerendering the whole grid.
@@ -594,7 +595,6 @@ function TableInner<Row extends object>({
   const [columnDragPreview, setColumnDragPreview] = useState<{
     sourceIndex: number;
     left: number;
-    top: number;
     width: number;
   } | null>(null);
   const [columnDropTarget, setColumnDropTarget] = useState<{ startIndex: number; endIndex: number } | null>(null);
@@ -1188,8 +1188,12 @@ function TableInner<Row extends object>({
       borderStrong: readThemeColor(themeStyles, '--rvg-color-border-strong', '#b8bec4'),
       selection: readThemeColor(themeStyles, '--rvg-color-primary', '#1677ff'),
       selectionFill: readThemeColor(themeStyles, '--rvg-color-selection-fill', '#edf4ff'),
-      axisSelectionFill: readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
-      axisSelectionText: readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
+      axisSelectionFill: columnDragPreview && selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key)
+        ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
+        : readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
+      axisSelectionText: columnDragPreview && selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key)
+        ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#325b88')
+        : readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
       editedFill: editedCellHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-edited-fill', '#fff1b8'),
       insertedFill: insertedRowHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-inserted-fill', '#c8ead4'),
@@ -1202,7 +1206,7 @@ function TableInner<Row extends object>({
       ? getViewportRange(scroll.left, rowScrollTop, viewport.width, bodyViewportHeight, rows.length, rowHeight, metrics, virtualOverscan)
       : { rowStart: 0, rowEnd: rows.length, columnStart: 0, columnEnd: columns.length };
     paintGrid({ context, width: viewport.width, height: renderHeight, pixelRatio: ratio, scrollLeft: scroll.left, scrollTop: scroll.top, rowHeight, bodyFontSize, headerActionSlotWidth, headerHeight, headerLeafTop, headerLeafHeight, bodyTop, suppressLastRowBottomBorder: bottomSummaryHeight > 0, suppressFrameBottomBorder: bottomSummaryHeight > 0, fixedHeader, verticalBorderless: !hasVerticalBorders, horizontalBorderless, frameBorderless, extendVerticalGridLines: !autoHeight, striped: hasStripedRows, columnDraggable, sortState, filterValues, hoveredHeaderAction: hoveredHeaderActionRef.current, rows, rowStyle, columns, metrics, range, selection, editing, hoveredRowIndex: hoveredRowIndexRef.current, selectionRange, selectedRowKeys: selectedRowKeySet, rowSelectionMode, selectedColumnKeys: selectedColumnKeySet, cellSpans: cellSpanLookup.covered, maxRowSpan: cellSpanLookup.maxRowSpan, highlightEditedCells: highlightsEditedCells, highlightInsertedRows: highlightsInsertedRows, insertedRowKeys: insertedRowKeySet, editedCellKeys, cellAnnotations, getRowKey, rowDragPreview, columnDropTarget, colors: themeColors });
-  }, [autoHeight, bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, frameBorderless, getRowKey, hasStripedRows, hasVerticalBorders, headerActionSlotWidth, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rowStyle, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
+  }, [autoHeight, bodyTop, bodyViewportHeight, bottomSummaryHeight, cellAnnotations, cellSpanLookup, columnDragPreview, columnDraggable, columnDropTarget, columns, editedCellHighlightColor, editedCellKeys, editing, renderHeight, filterValues, fixedHeader, frameBorderless, getRowKey, hasStripedRows, hasVerticalBorders, headerActionSlotWidth, headerDepth, headerHeight, headerLeafHeight, headerLeafTop, horizontalBorderless, highlightsEditedCells, highlightsInsertedRows, insertedRowHighlightColor, insertedRowKeySet, isVirtualized, metrics, rowDragPreview, rowHeight, rowSelectionMode, rowStyle, rows, selectedColumnKeySet, selectedRowKeySet, selection, selectionRange, sortState, stripedColor, viewport.width, virtualOverscan]);
 
   // Canvas work is scheduled with requestAnimationFrame so scroll and hover can
   // update quickly without forcing a synchronous repaint on every pointer event.
@@ -2636,6 +2640,10 @@ function TableInner<Row extends object>({
   }, []);
 
   const clearColumnOrderPointerDrag = useCallback((canvas: HTMLCanvasElement) => {
+    if (columnOrderLongPressTimerRef.current) {
+      clearTimeout(columnOrderLongPressTimerRef.current);
+      columnOrderLongPressTimerRef.current = null;
+    }
     columnOrderDragRef.current = null;
     setColumnDragPreview(null);
     validColumnDropRef.current = null;
@@ -2644,6 +2652,45 @@ function TableInner<Row extends object>({
     document.documentElement.classList.remove('rvg-is-dragging');
     canvas.style.cursor = 'default';
   }, [setDragGuide]);
+
+  const updateColumnDragPreview = useCallback((sourceCell: HeaderCell<Row>, clientX: number, canvas: HTMLCanvasElement) => {
+    const rootRect = rootRef.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect();
+    const sourceWidth = metrics[sourceCell.startIndex]?.width ?? 100;
+    const sourceColumn = columns[sourceCell.startIndex];
+    const previewContext = canvas.getContext('2d');
+    const previewStyles = rootRef.current ? getComputedStyle(rootRef.current) : null;
+    const previewFontSize = previewStyles ? readThemePixel(previewStyles, '--rvg-font-size-body', 13) : 13;
+    if (previewContext) previewContext.font = `${previewFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    const measurePreviewText = (value: string) => previewContext?.measureText(value).width ?? value.length * previewFontSize * 0.58;
+    const previewContentWidth = Math.max(
+      measurePreviewText(sourceColumn?.title ?? ''),
+      ...rows.slice(0, 100).map((_row, rowIndex) => measurePreviewText(getCellLabel(rowIndex, sourceCell.startIndex))),
+    ) + 24;
+    const previewWidth = Math.min(
+      Math.max(sourceWidth, Math.ceil(previewContentWidth)),
+      Math.max(60, Math.min(360, viewport.width - 16)),
+    );
+    setColumnDragPreview({
+      sourceIndex: sourceCell.startIndex,
+      left: Math.max(4, Math.min(viewport.width - previewWidth - 4, clientX - rootRect.left - previewWidth / 2)),
+      width: previewWidth,
+    });
+  }, [columns, getCellLabel, metrics, rows, viewport.width]);
+
+  const activateColumnOrderPointerDrag = useCallback((canvas: HTMLCanvasElement, clientX: number) => {
+    const drag = columnOrderDragRef.current;
+    if (!drag || drag.active) return;
+    if (columnOrderLongPressTimerRef.current) {
+      clearTimeout(columnOrderLongPressTimerRef.current);
+      columnOrderLongPressTimerRef.current = null;
+    }
+    drag.active = true;
+    suppressClickRef.current = true;
+    hideDragTooltips();
+    document.documentElement.classList.add('rvg-is-dragging');
+    canvas.style.cursor = 'move';
+    updateColumnDragPreview(drag.sourceCell, clientX, canvas);
+  }, [hideDragTooltips, updateColumnDragPreview]);
 
   const handleColumnOrderPointerDown = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!columnDraggable || event.button !== 0 || columnDragRef.current) return;
@@ -2660,33 +2707,27 @@ function TableInner<Row extends object>({
       active: false,
       sourceCell,
     };
-  }, [columnDraggable, columns, locateHeaderAction, locateHeaderCell, locateHeaderResizeCell]);
+    if (columnOrderLongPressTimerRef.current) clearTimeout(columnOrderLongPressTimerRef.current);
+    const canvas = event.currentTarget;
+    const pointerId = event.pointerId;
+    columnOrderLongPressTimerRef.current = setTimeout(() => {
+      const drag = columnOrderDragRef.current;
+      if (!drag || drag.pointerId !== pointerId || drag.active) return;
+      activateColumnOrderPointerDrag(canvas, drag.startX);
+    }, 320);
+  }, [activateColumnOrderPointerDrag, columnDraggable, columns, locateHeaderAction, locateHeaderCell, locateHeaderResizeCell]);
 
   const handleColumnOrderPointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = columnOrderDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId || columnDragRef.current) return;
     if (!drag.active) {
       if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) return;
-      drag.active = true;
-      suppressClickRef.current = true;
-      hideDragTooltips();
-      document.documentElement.classList.add('rvg-is-dragging');
-      event.currentTarget.style.cursor = 'move';
+      activateColumnOrderPointerDrag(event.currentTarget, event.clientX);
     }
     event.preventDefault();
 
     const sourceCell = drag.sourceCell;
-    const rootRect = rootRef.current?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
-    const sourceWidth = metrics[sourceCell.startIndex]?.width ?? 160;
-    const previewWidth = Math.min(sourceWidth, Math.max(60, viewport.width - 16));
-    const previewRowCount = Math.min(rows.length, 6);
-    const previewHeight = headerLeafHeight + previewRowCount * rowHeight;
-    setColumnDragPreview({
-      sourceIndex: sourceCell.startIndex,
-      left: Math.max(4, Math.min(viewport.width - previewWidth - 4, event.clientX - rootRect.left + 12)),
-      top: Math.max(4, Math.min(viewport.height - previewHeight - 4, event.clientY - rootRect.top + 12)),
-      width: previewWidth,
-    });
+    updateColumnDragPreview(sourceCell, event.clientX, event.currentTarget);
     const hoveredColumnIndex = locateColumn(event.clientX);
     const targetCell = locateHeaderCell(event.clientX, event.clientY) ?? headerCells.find((cell) => (
       hoveredColumnIndex >= cell.startIndex
@@ -2717,21 +2758,44 @@ function TableInner<Row extends object>({
       setDragGuide(null);
       return;
     }
+    if (targetCell.startIndex === sourceCell.startIndex && targetCell.endIndex === sourceCell.endIndex) {
+      validColumnDropRef.current = null;
+      setColumnDropTarget(null);
+      setDragGuide(null);
+      return;
+    }
 
     const targetLeft = getHeaderCellLeft(targetCell);
     const targetWidth = getHeaderCellWidth(targetCell);
     const localX = event.clientX - event.currentTarget.getBoundingClientRect().left;
-    const columnEdge = localX < targetLeft + targetWidth / 2 ? 'left' : 'right';
-    const destinationIndex = resolveColumnDropIndex(
+    let columnEdge: 'left' | 'right' = localX < targetLeft + targetWidth / 2 ? 'left' : 'right';
+    let destinationIndex = resolveColumnDropIndex(
       sourceCell.startIndex,
       targetCell.startIndex,
       columnEdge,
       columns.length,
     );
+    if (destinationIndex === sourceCell.startIndex && targetCell.startIndex !== sourceCell.startIndex) {
+      columnEdge = targetCell.startIndex < sourceCell.startIndex ? 'left' : 'right';
+      destinationIndex = resolveColumnDropIndex(
+        sourceCell.startIndex,
+        targetCell.startIndex,
+        columnEdge,
+        columns.length,
+      );
+    }
+    const compatibleHighlightCells = headerCells.filter((cell) => {
+      const cellColumn = columns[cell.startIndex];
+      return cellColumn
+        && !cellColumn.rowSelection
+        && !cellColumn.rowDragHandle
+        && !cellColumn.rowNumber
+        && cellColumn.fixed === targetColumn.fixed;
+    });
+    setColumnDropTarget(resolveColumnDropHighlightRange(targetCell, columnEdge, compatibleHighlightCells));
+    setDragGuide(columnEdge === 'right' ? targetLeft + targetWidth : targetLeft, headerRowOffsets[sourceCell.level] ?? 0);
     if (destinationIndex === sourceCell.startIndex) {
       validColumnDropRef.current = null;
-      setColumnDropTarget(null);
-      setDragGuide(null);
       return;
     }
 
@@ -2745,17 +2809,7 @@ function TableInner<Row extends object>({
       fixed: targetColumn.fixed,
       columnEdge,
     };
-    const compatibleHighlightCells = headerCells.filter((cell) => {
-      const cellColumn = columns[cell.startIndex];
-      return cellColumn
-        && !cellColumn.rowSelection
-        && !cellColumn.rowDragHandle
-        && !cellColumn.rowNumber
-        && cellColumn.fixed === targetColumn.fixed;
-    });
-    setColumnDropTarget(resolveColumnDropHighlightRange(targetCell, columnEdge, compatibleHighlightCells));
-    setDragGuide(columnEdge === 'right' ? targetLeft + targetWidth : targetLeft, headerRowOffsets[sourceCell.level] ?? 0);
-  }, [columns, getHeaderCellLeft, getHeaderCellWidth, headerCells, headerLeafHeight, headerRowOffsets, hideDragTooltips, locateColumn, locateHeaderCell, metrics, rowHeight, rows.length, setDragGuide, viewport.height, viewport.width]);
+  }, [activateColumnOrderPointerDrag, columns, getHeaderCellLeft, getHeaderCellWidth, headerCells, headerRowOffsets, locateColumn, locateHeaderCell, setDragGuide, updateColumnDragPreview]);
 
   const finishColumnOrderPointerDrag = useCallback((event: React.PointerEvent<HTMLCanvasElement>, apply: boolean) => {
     const drag = columnOrderDragRef.current;
@@ -3712,9 +3766,13 @@ function TableInner<Row extends object>({
   } as CSSProperties;
   const currentScroll = scrollRef.current;
   const scrollerBottom = Math.max(0, bottomSummaryHeight - horizontalScrollbarHeight);
+  const draggingSelectedColumn = Boolean(
+    columnDragPreview
+    && selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key),
+  );
 
   return (
-    <div ref={rootRef} className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${frameBorderless ? ' is-frame-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
+    <div ref={rootRef} className={`rvg-root${!hasVerticalBorders ? ' is-vertical-borderless' : ''}${horizontalBorderless ? ' is-horizontal-borderless' : ''}${frameBorderless ? ' is-frame-borderless' : ''}${hasStripedRows ? ' is-striped' : ''}${insertBusy ? ' is-inserting' : ''}${deleteBusy ? ' is-deleting' : ''}${draggingSelectedColumn ? ' is-dragging-selected-column' : ''} ${loading && !hasCompletedLoadRef.current && !hasCustomLoading ? 'is-initial-loading' : ''} ${className}`} style={rootStyle}>
       <div ref={scrollerRef} className={`rvg-scroller${contextMenu ? ' is-context-menu-open' : ''}`} style={{ bottom: scrollerBottom }} onScroll={handleScroll} onCopy={handleCopy} onContextMenu={handleContextMenu} tabIndex={0} role="grid" aria-label={ariaLabel} aria-rowcount={rows.length} aria-colcount={columns.length} onKeyDown={handleKeyDown}>
         <canvas
           ref={canvasRef}
@@ -4454,23 +4512,27 @@ function TableInner<Row extends object>({
           className="rvg-column-drag-preview"
           style={{
             left: columnDragPreview.left,
-            top: columnDragPreview.top,
+            top: 0,
             width: columnDragPreview.width,
-            height: headerLeafHeight + Math.min(rows.length, 6) * rowHeight,
+            height: renderHeight,
           }}
         >
-          <div className="rvg-column-drag-preview-header" style={{ top: 0, height: headerLeafHeight }}>
-            {columns[columnDragPreview.sourceIndex]?.title}
+          <div className="rvg-column-drag-preview-header" style={{ top: headerLeafTop, height: headerLeafHeight }}>
+            {columns[columnDragPreview.sourceIndex]?.renderHeader?.(columns[columnDragPreview.sourceIndex])
+              ?? columns[columnDragPreview.sourceIndex]?.title}
           </div>
-          {rows.slice(0, 6).map((_row, rowIndex) => (
+          {rows.slice(domRange.rowStart, domRange.rowEnd).map((_row, visibleRowOffset) => {
+            const rowIndex = domRange.rowStart + visibleRowOffset;
+            return (
             <div
               key={`column-preview:${String(getRowKey(rows[rowIndex], rowIndex))}`}
-              className="rvg-column-drag-preview-cell"
-              style={{ top: headerLeafHeight + rowIndex * rowHeight, height: rowHeight }}
+              className={`rvg-column-drag-preview-cell${hasStripedRows && rowIndex % 2 === 1 ? ' is-striped' : ''}`}
+              style={{ top: bodyTop + rowIndex * rowHeight - scrollRef.current.top, height: rowHeight }}
             >
               {getCellLabel(rowIndex, columnDragPreview.sourceIndex)}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {resizeGuideX !== null && (
