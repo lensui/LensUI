@@ -31,14 +31,14 @@ describe('Table column reorder placement', () => {
     expect(resolveColumnDropPlacement('right')).toBe('after');
   });
 
-  it('highlights the column whose right edge is used as the drop guide', () => {
+  it('highlights the hovered column independently from its insertion edge', () => {
     const cells = [
       { startIndex: 0, endIndex: 0, level: 0 },
       { startIndex: 1, endIndex: 1, level: 0 },
       { startIndex: 2, endIndex: 2, level: 0 },
     ];
 
-    expect(resolveColumnDropHighlightRange(cells[2], 'left', cells)).toEqual({ startIndex: 1, endIndex: 1 });
+    expect(resolveColumnDropHighlightRange(cells[2], 'left', cells)).toEqual({ startIndex: 2, endIndex: 2 });
     expect(resolveColumnDropHighlightRange(cells[1], 'right', cells)).toEqual({ startIndex: 1, endIndex: 1 });
   });
 
@@ -70,9 +70,12 @@ describe('Table column reorder placement', () => {
 
     fireEvent(canvas, pointerEvent('pointerdown', 50));
     fireEvent(canvas, pointerEvent('pointermove', 350));
+
+    expect(view.container.querySelector('.rvg-column-drag-preview')).not.toBeNull();
     fireEvent(canvas, pointerEvent('pointerup', 350));
 
     expect(onColumnsReorder).toHaveBeenCalledTimes(1);
+    expect(view.container.querySelector('.rvg-column-drag-preview')).toBeNull();
     expect(onColumnsReorder.mock.lastCall?.[0].map((column: GridColumn<(typeof rows)[number]>) => column.key)).toEqual(['name', 'id']);
     expect(onColumnsReorder.mock.lastCall?.[1]).toMatchObject({
       sourceIndex: 0,

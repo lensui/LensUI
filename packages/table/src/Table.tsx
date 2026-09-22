@@ -80,18 +80,10 @@ export function resolveColumnDropPlacement(edge: unknown): 'before' | 'after' {
 
 export function resolveColumnDropHighlightRange(
   target: { startIndex: number; endIndex: number; level: number; parentKey?: string },
-  edge: 'left' | 'right',
-  cells: Array<{ startIndex: number; endIndex: number; level: number; parentKey?: string }>,
+  _edge: 'left' | 'right',
+  _cells: Array<{ startIndex: number; endIndex: number; level: number; parentKey?: string }>,
 ) {
-  if (edge === 'right') return { startIndex: target.startIndex, endIndex: target.endIndex };
-  const previous = cells.find((cell) => (
-    cell.endIndex === target.startIndex - 1
-    && cell.level === target.level
-    && cell.parentKey === target.parentKey
-  ));
-  return previous
-    ? { startIndex: previous.startIndex, endIndex: previous.endIndex }
-    : { startIndex: target.startIndex, endIndex: target.endIndex };
+  return { startIndex: target.startIndex, endIndex: target.endIndex };
 }
 
 type InternalGridColumn<Row> = GridColumn<Row> & {
@@ -556,7 +548,6 @@ function TableInner<Row extends object>({
   // normal click-selection path when the pointer is released.
   const suppressClickRef = useRef(false);
   const hasCompletedLoadRef = useRef(!loading);
-  const columnDragPreviewRef = useRef<{ sourceIndex: number; targetIndex: number } | null>(null);
   const validColumnDropRef = useRef<ColumnDropState | null>(null);
   const hoveredHeaderActionRef = useRef<{ columnIndex: number; action: 'sort' | 'filter' | 'drag' | 'title' | 'content' } | null>(null);
   const hoveredRowIndexRef = useRef<number | null>(null);
@@ -600,6 +591,12 @@ function TableInner<Row extends object>({
   const [editing, setEditing] = useState<GridSelection | null>(null);
   const [draft, setDraft] = useState('');
   const [rowDragPreview, setRowDragPreview] = useState<{ sourceIndex: number; targetIndex: number } | null>(null);
+  const [columnDragPreview, setColumnDragPreview] = useState<{
+    sourceIndex: number;
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
   const [columnDropTarget, setColumnDropTarget] = useState<{ startIndex: number; endIndex: number } | null>(null);
 
   useEffect(() => {
@@ -2640,7 +2637,7 @@ function TableInner<Row extends object>({
 
   const clearColumnOrderPointerDrag = useCallback((canvas: HTMLCanvasElement) => {
     columnOrderDragRef.current = null;
-    columnDragPreviewRef.current = null;
+    setColumnDragPreview(null);
     validColumnDropRef.current = null;
     setColumnDropTarget(null);
     setDragGuide(null);
@@ -2679,6 +2676,17 @@ function TableInner<Row extends object>({
     event.preventDefault();
 
     const sourceCell = drag.sourceCell;
+    const rootRect = rootRef.current?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
+    const sourceWidth = metrics[sourceCell.startIndex]?.width ?? 160;
+    const previewWidth = Math.min(sourceWidth, Math.max(60, viewport.width - 16));
+    const previewRowCount = Math.min(rows.length, 6);
+    const previewHeight = headerLeafHeight + previewRowCount * rowHeight;
+    setColumnDragPreview({
+      sourceIndex: sourceCell.startIndex,
+      left: Math.max(4, Math.min(viewport.width - previewWidth - 4, event.clientX - rootRect.left + 12)),
+      top: Math.max(4, Math.min(viewport.height - previewHeight - 4, event.clientY - rootRect.top + 12)),
+      width: previewWidth,
+    });
     const hoveredColumnIndex = locateColumn(event.clientX);
     const targetCell = locateHeaderCell(event.clientX, event.clientY) ?? headerCells.find((cell) => (
       hoveredColumnIndex >= cell.startIndex
@@ -2720,7 +2728,6 @@ function TableInner<Row extends object>({
       columnEdge,
       columns.length,
     );
-    columnDragPreviewRef.current = { sourceIndex: sourceCell.startIndex, targetIndex: destinationIndex };
     if (destinationIndex === sourceCell.startIndex) {
       validColumnDropRef.current = null;
       setColumnDropTarget(null);
@@ -2748,7 +2755,7 @@ function TableInner<Row extends object>({
     });
     setColumnDropTarget(resolveColumnDropHighlightRange(targetCell, columnEdge, compatibleHighlightCells));
     setDragGuide(columnEdge === 'right' ? targetLeft + targetWidth : targetLeft, headerRowOffsets[sourceCell.level] ?? 0);
-  }, [columns, getHeaderCellLeft, getHeaderCellWidth, headerCells, headerRowOffsets, hideDragTooltips, locateColumn, locateHeaderCell, setDragGuide]);
+  }, [columns, getHeaderCellLeft, getHeaderCellWidth, headerCells, headerLeafHeight, headerRowOffsets, hideDragTooltips, locateColumn, locateHeaderCell, metrics, rowHeight, rows.length, setDragGuide, viewport.height, viewport.width]);
 
   const finishColumnOrderPointerDrag = useCallback((event: React.PointerEvent<HTMLCanvasElement>, apply: boolean) => {
     const drag = columnOrderDragRef.current;
@@ -4441,6 +4448,31 @@ function TableInner<Row extends object>({
         <div ref={horizontalScrollbarThumbRef} className="rvg-horizontal-scrollbar-thumb" />
       </div>
       <div ref={dragGuideRef} className="rvg-column-guide" />
+      {columnDragPreview && (
+        <div
+          aria-hidden="true"
+          className="rvg-column-drag-preview"
+          style={{
+            left: columnDragPreview.left,
+            top: columnDragPreview.top,
+            width: columnDragPreview.width,
+            height: headerLeafHeight + Math.min(rows.length, 6) * rowHeight,
+          }}
+        >
+          <div className="rvg-column-drag-preview-header" style={{ top: 0, height: headerLeafHeight }}>
+            {columns[columnDragPreview.sourceIndex]?.title}
+          </div>
+          {rows.slice(0, 6).map((_row, rowIndex) => (
+            <div
+              key={`column-preview:${String(getRowKey(rows[rowIndex], rowIndex))}`}
+              className="rvg-column-drag-preview-cell"
+              style={{ top: headerLeafHeight + rowIndex * rowHeight, height: rowHeight }}
+            >
+              {getCellLabel(rowIndex, columnDragPreview.sourceIndex)}
+            </div>
+          ))}
+        </div>
+      )}
       {resizeGuideX !== null && (
         <div
           className="rvg-column-guide is-resizing"
