@@ -1179,6 +1179,12 @@ function TableInner<Row extends object>({
     if (!context) return;
     const themeStyles = getComputedStyle(canvas);
     const bodyFontSize = readThemePixel(themeStyles, '--rvg-font-size-body', 13);
+    const isSelectedColumnDropTarget = Boolean(
+      columnDropTarget
+      && columns
+        .slice(columnDropTarget.startIndex, columnDropTarget.endIndex + 1)
+        .some((column) => selectedColumnKeySet.has(column.key)),
+    );
     const themeColors = {
       background: readThemeColor(themeStyles, '--rvg-color-bg', '#ffffff'),
       header: readThemeColor(themeStyles, '--rvg-color-header-bg', '#f5f6f7'),
@@ -1189,10 +1195,10 @@ function TableInner<Row extends object>({
       borderStrong: readThemeColor(themeStyles, '--rvg-color-border-strong', '#b8bec4'),
       selection: readThemeColor(themeStyles, '--rvg-color-primary', '#1677ff'),
       selectionFill: readThemeColor(themeStyles, '--rvg-color-selection-fill', '#edf4ff'),
-      axisSelectionFill: columnDragPreview && selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key)
+      axisSelectionFill: isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
-      axisSelectionText: columnDragPreview && selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key)
+      axisSelectionText: isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#325b88')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
@@ -4521,7 +4527,10 @@ function TableInner<Row extends object>({
             height: renderHeight,
           }}
         >
-          <div className="rvg-column-drag-preview-header" style={{ top: headerLeafTop, height: headerLeafHeight }}>
+          <div
+            className={`rvg-column-drag-preview-header${selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key) ? ' is-axis-selected' : ''}`}
+            style={{ top: headerLeafTop, height: headerLeafHeight }}
+          >
             {columns[columnDragPreview.sourceIndex]?.renderHeader?.(columns[columnDragPreview.sourceIndex])
               ?? columns[columnDragPreview.sourceIndex]?.title}
           </div>
@@ -4530,7 +4539,7 @@ function TableInner<Row extends object>({
             return (
             <div
               key={`column-preview:${String(getRowKey(rows[rowIndex], rowIndex))}`}
-              className={`rvg-column-drag-preview-cell${hasStripedRows && rowIndex % 2 === 1 ? ' is-striped' : ''}`}
+              className={`rvg-column-drag-preview-cell${selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key) ? ' is-axis-selected' : ''}${hasStripedRows && rowIndex % 2 === 1 ? ' is-striped' : ''}`}
               style={{ top: bodyTop + rowIndex * rowHeight - scrollRef.current.top, height: rowHeight }}
             >
               {getCellLabel(rowIndex, columnDragPreview.sourceIndex)}
