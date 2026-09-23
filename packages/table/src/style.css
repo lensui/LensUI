@@ -34,7 +34,7 @@
 }
 
 .rvg-root {
-  position: relative; overflow: hidden; border: 0; border-radius: 0; background: var(--rvg-color-bg); color: var(--rvg-color-text); box-sizing: border-box; overscroll-behavior: none;
+  position: relative; overflow: visible; border: 0; border-radius: 0; background: var(--rvg-color-bg); color: var(--rvg-color-text); box-sizing: border-box; overscroll-behavior: none;
 }
 .rvg-root.is-inserting,
 .rvg-root.is-inserting *,
@@ -216,6 +216,8 @@
 .rvg-cell-tooltip.is-left { transform: translate(-100%, -50%); }
 .rvg-header-tooltip.is-left::after,
 .rvg-cell-tooltip.is-left::after { right: -4px; border-left: 5px solid var(--rvg-color-tooltip-bg); }
+.rvg-header-tooltip.is-above { transform: translate(-50%, -100%); }
+.rvg-header-tooltip.is-above::after { bottom: -6px; left: 50%; transform: translateX(-50%); border-right: 6px solid transparent; border-top: 6px solid var(--rvg-color-tooltip-bg); border-bottom: 0; border-left: 6px solid transparent; }
 .rvg-header-tooltip.is-below,
 .rvg-cell-tooltip.is-below { transform: none; }
 .rvg-header-tooltip.is-below::after,
@@ -305,6 +307,7 @@
 .rvg-column-drag-preview-cell { visibility: hidden; }
 .rvg-column-drag-preview.is-axis-selected { background: var(--rvg-color-axis-selection-fill); }
 .rvg-column-drag-preview.is-axis-selected .rvg-column-drag-preview-cell { border-bottom-color: color-mix(in srgb, var(--rvg-color-axis-selection-text) 34%, transparent); background: var(--rvg-color-axis-selection-fill); }
+.rvg-column-drag-preview.is-axis-selected .rvg-column-drag-preview-cell.is-striped { background: var(--rvg-color-axis-selection-stripe-fill); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon { position: absolute; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); overflow: visible; color: var(--rvg-color-icon); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon path,
 .rvg-column-drag-preview-header .rvg-preview-header-icon circle { fill: currentColor; }

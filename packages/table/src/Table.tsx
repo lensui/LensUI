@@ -111,7 +111,7 @@ interface HeaderTooltipState {
   left: number;
   top: number;
   label: string;
-  placement: 'left' | 'right' | 'below';
+  placement: 'left' | 'right' | 'above' | 'below';
 }
 
 interface HeaderResizeHit<Row> {
@@ -1203,9 +1203,10 @@ function TableInner<Row extends object>({
       axisSelectionFill: isSelectedColumnDrag || isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
-      axisSelectionStripeFill: isSelectedColumnDrag || isSelectedColumnDropTarget
-        ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
-        : readThemeColor(themeStyles, '--rvg-color-axis-selection-stripe-fill', '#dfeeff'),
+      // Keep zebra striping while a selected column is being dragged. The
+      // regular and drag fills intentionally differ, but odd rows should
+      // continue to use the dedicated stripe color in both states.
+      axisSelectionStripeFill: readThemeColor(themeStyles, '--rvg-color-axis-selection-stripe-fill', '#dfeeff'),
       axisSelectionText: isSelectedColumnDrag || isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#325b88')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
@@ -2900,6 +2901,7 @@ function TableInner<Row extends object>({
     const rowTop = (fixedHeader ? 0 : -scrollPosition.top) + (headerRowOffsets[level] ?? 0);
     const rowHeight = headerRowHeights[level] ?? baseHeaderHeight;
     let anchorX = cellLeft + cellWidth / 2;
+    let anchorY = rowTop + rowHeight / 2;
     let anchorLeft = cellLeft;
     let label = column.title;
     if (action === 'title') {
@@ -2927,8 +2929,12 @@ function TableInner<Row extends object>({
         anchorX = anchorLeft + textWidth;
       }
     } else if (action === 'drag') {
-      anchorX = cellLeft + cellWidth;
+      const right = cellLeft + cellWidth - headerActionSlotWidth;
+      anchorX = right - headerActionSlotWidth / 2;
       anchorLeft = anchorX;
+      anchorY = rowTop + headerLeafTop + (column.renderHeader
+        ? 8 + Math.max(0, (16 - headerActionSize) / 2)
+        : (headerLeafHeight - headerActionSize) / 2) + headerActionSize / 2;
       label = labels.dragColumn;
     } else if (action === 'sort') {
       const direction = sortState?.columnKey === column.key ? sortState.direction : null;
@@ -2937,6 +2943,9 @@ function TableInner<Row extends object>({
       const right = cellLeft + cellWidth - (visibleActions.drag ? headerActionSlotWidth : 2);
       anchorX = right - headerActionSlotWidth / 2;
       anchorLeft = anchorX;
+      anchorY = rowTop + headerLeafTop + (column.renderHeader
+        ? 8 + Math.max(0, (16 - headerActionSize) / 2)
+        : (headerLeafHeight - headerActionSize) / 2) + headerActionSize / 2;
     } else if (action === 'filter') {
       const value = filterValues[column.key];
       label = value ? labels.filterWithValue(value) : labels.filter;
@@ -2945,18 +2954,23 @@ function TableInner<Row extends object>({
       if (visibleActions.sort) right -= headerActionSlotWidth;
       anchorX = right - headerActionSlotWidth / 2;
       anchorLeft = anchorX;
+      anchorY = rowTop + headerLeafTop + (column.renderHeader
+        ? 8 + Math.max(0, (16 - headerActionSize) / 2)
+        : (headerLeafHeight - headerActionSize) / 2) + headerActionSize / 2 + 1;
     }
-    const placement: 'left' | 'right' = anchorX + 328 > viewport.width ? 'left' : 'right';
+    const isActionTooltip = action === 'drag' || action === 'sort' || action === 'filter';
+    const horizontalPlacement: 'left' | 'right' = anchorX + 328 > viewport.width ? 'left' : 'right';
+    const placement: HeaderTooltipState['placement'] = isActionTooltip ? 'above' : horizontalPlacement;
     return {
       key: `${action}:${cell ? `cell:${cell.key}:${cell.level}` : `column:${column.key}`}:${Math.round(anchorX)}:${Math.round(rowTop)}`,
       columnIndex,
       action,
-      left: placement === 'right' ? anchorX + 8 : Math.max(8, anchorLeft - 8),
-      top: rowTop + rowHeight / 2,
+      left: placement === 'above' ? anchorX : placement === 'right' ? anchorX + 8 : Math.max(8, anchorLeft - 8),
+      top: placement === 'above' ? anchorY - 14 : anchorY,
       label,
       placement,
     };
-  }, [baseHeaderHeight, columnDraggable, columns, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerActionSlotWidth, headerDepth, headerRowHeights, headerRowOffsets, labels, measureHeaderTitleWidth, metrics, scrollPosition.top, sortState, viewport.width]);
+  }, [baseHeaderHeight, columnDraggable, columns, filterValues, fixedHeader, getDisplayedColumnLeft, getHeaderCellLeft, getHeaderCellWidth, headerActionSize, headerActionSlotWidth, headerDepth, headerLeafHeight, headerLeafTop, headerRowHeights, headerRowOffsets, labels, measureHeaderTitleWidth, metrics, scrollPosition.top, sortState, viewport.width]);
 
   const isPointerOnHeaderTitle = useCallback((clientX: number, clientY: number, cell: HeaderCell<Row>) => {
     const canvas = canvasRef.current;
