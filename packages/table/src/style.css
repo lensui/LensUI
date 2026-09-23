@@ -296,11 +296,13 @@
 .rvg-confirm-actions .rvg-confirm-danger svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; transform-origin: center; animation: rvg-loading-spin .8s linear infinite; }
 .rvg-toast { position: absolute; z-index: 12; left: 50%; bottom: 20px; min-width: 96px; padding: 8px 14px; transform: translateX(-50%); border-radius: 3px; background: var(--rvg-color-tooltip-bg); color: var(--rvg-color-bg); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; text-align: center; pointer-events: none; }
 .rvg-toast.is-error { background: var(--rvg-color-danger); }
-.rvg-column-drag-preview { position: absolute; z-index: 11; overflow: hidden; border: 1px solid color-mix(in srgb, var(--rvg-color-primary) 38%, var(--rvg-color-grid)); background: var(--rvg-color-bg); box-shadow: 0 6px 18px rgba(50, 91, 136, 0.18); opacity: 0.94; pointer-events: none; box-sizing: border-box; }
+.rvg-column-drag-preview { position: absolute; z-index: 11; overflow: hidden; border: 1px solid color-mix(in srgb, var(--rvg-color-primary) 38%, var(--rvg-color-grid)); background: var(--rvg-color-bg); box-shadow: 0 6px 18px rgba(50, 91, 136, 0.18); opacity: 1; pointer-events: none; box-sizing: border-box; }
 .rvg-column-drag-preview-header,
-.rvg-column-drag-preview-cell { position: absolute; right: 0; left: 0; display: flex; padding: 0 10px; align-items: center; overflow: hidden; border-bottom: 1px solid var(--rvg-color-grid); color: var(--rvg-color-text); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
+.rvg-column-drag-preview-cell { position: absolute; right: 0; left: 0; display: flex; padding: 0 10px; align-items: center; overflow: hidden; border-bottom: 1px solid var(--rvg-color-grid); color: var(--rvg-color-text); font: var(--rvg-font-size-body) Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; text-overflow: clip; box-sizing: border-box; }
 .rvg-column-drag-preview-header { background: var(--rvg-color-header-bg); color: var(--rvg-color-text); font-weight: 600; }
 .rvg-column-drag-preview-cell.is-striped { background: var(--rvg-color-stripe); }
+.rvg-column-drag-preview.is-axis-selected { background: var(--rvg-color-axis-selection-fill); }
+.rvg-column-drag-preview.is-axis-selected .rvg-column-drag-preview-cell { border-bottom-color: color-mix(in srgb, var(--rvg-color-axis-selection-text) 34%, transparent); background: var(--rvg-color-axis-selection-fill); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon { position: absolute; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); overflow: visible; color: var(--rvg-color-icon); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon path,
 .rvg-column-drag-preview-header .rvg-preview-header-icon circle { fill: currentColor; }
@@ -312,7 +314,7 @@
 .rvg-is-dragging,
 .rvg-is-dragging * { cursor: move !important; }
 .rvg-column-drag-preview-header.is-axis-selected,
-.rvg-column-drag-preview-cell.is-axis-selected { background: var(--rvg-color-axis-selection-drag-fill); color: var(--rvg-color-axis-selection-drag-text); }
+.rvg-column-drag-preview-cell.is-axis-selected { background: var(--rvg-color-axis-selection-fill); color: var(--rvg-color-axis-selection-text); }
 .rvg-column-drag-preview-cell.is-edited { background: var(--rvg-color-edited-fill); }
 .rvg-column-drag-preview-cell.is-selected { background: var(--rvg-color-selection-fill); }
 .rvg-row-drag-preview-frame { position: relative; overflow: hidden; }

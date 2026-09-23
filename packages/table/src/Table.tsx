@@ -1179,6 +1179,9 @@ function TableInner<Row extends object>({
     if (!context) return;
     const themeStyles = getComputedStyle(canvas);
     const bodyFontSize = readThemePixel(themeStyles, '--rvg-font-size-body', 13);
+    const isSelectedColumnDrag = Boolean(
+      columnDragPreview && selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key),
+    );
     const isSelectedColumnDropTarget = Boolean(
       columnDropTarget
       && columns
@@ -1195,10 +1198,10 @@ function TableInner<Row extends object>({
       borderStrong: readThemeColor(themeStyles, '--rvg-color-border-strong', '#b8bec4'),
       selection: readThemeColor(themeStyles, '--rvg-color-primary', '#1677ff'),
       selectionFill: readThemeColor(themeStyles, '--rvg-color-selection-fill', '#edf4ff'),
-      axisSelectionFill: isSelectedColumnDropTarget
+      axisSelectionFill: isSelectedColumnDrag || isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
-      axisSelectionText: isSelectedColumnDropTarget
+      axisSelectionText: isSelectedColumnDrag || isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#325b88')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
@@ -2663,26 +2666,13 @@ function TableInner<Row extends object>({
   const updateColumnDragPreview = useCallback((sourceCell: HeaderCell<Row>, clientX: number, canvas: HTMLCanvasElement) => {
     const rootRect = rootRef.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect();
     const sourceWidth = metrics[sourceCell.startIndex]?.width ?? 100;
-    const sourceColumn = columns[sourceCell.startIndex];
-    const previewContext = canvas.getContext('2d');
-    const previewStyles = rootRef.current ? getComputedStyle(rootRef.current) : null;
-    const previewFontSize = previewStyles ? readThemePixel(previewStyles, '--rvg-font-size-body', 13) : 13;
-    if (previewContext) previewContext.font = `${previewFontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    const measurePreviewText = (value: string) => previewContext?.measureText(value).width ?? value.length * previewFontSize * 0.58;
-    const previewContentWidth = Math.max(
-      measurePreviewText(sourceColumn?.title ?? ''),
-      ...rows.slice(0, 100).map((_row, rowIndex) => measurePreviewText(getCellLabel(rowIndex, sourceCell.startIndex))),
-    ) + 24;
-    const previewWidth = Math.min(
-      Math.max(sourceWidth, Math.ceil(previewContentWidth)),
-      Math.max(60, Math.min(360, viewport.width - 16)),
-    );
+    const previewWidth = sourceWidth;
     setColumnDragPreview({
       sourceIndex: sourceCell.startIndex,
       left: Math.max(4, Math.min(viewport.width - previewWidth - 4, clientX - rootRect.left - previewWidth / 2)),
       width: previewWidth,
     });
-  }, [columns, getCellLabel, metrics, rows, viewport.width]);
+  }, [metrics, viewport.width]);
 
   const activateColumnOrderPointerDrag = useCallback((canvas: HTMLCanvasElement, clientX: number) => {
     const drag = columnOrderDragRef.current;
@@ -4519,7 +4509,7 @@ function TableInner<Row extends object>({
       {columnDragPreview && (
         <div
           aria-hidden="true"
-          className="rvg-column-drag-preview"
+          className={`rvg-column-drag-preview${selectedColumnKeySet.has(columns[columnDragPreview.sourceIndex]?.key) ? ' is-axis-selected' : ''}`}
           style={{
             left: columnDragPreview.left,
             top: 0,
@@ -4533,6 +4523,7 @@ function TableInner<Row extends object>({
           >
             {columns[columnDragPreview.sourceIndex]?.renderHeader?.(columns[columnDragPreview.sourceIndex])
               ?? columns[columnDragPreview.sourceIndex]?.title}
+            {renderHeaderIcons(columnDragPreview.sourceIndex, 0)}
           </div>
           {rows.slice(domRange.rowStart, domRange.rowEnd).map((_row, visibleRowOffset) => {
             const rowIndex = domRange.rowStart + visibleRowOffset;

@@ -292,7 +292,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       if (isColumnDropTarget) {
-        ctx.fillStyle = colors.columnDropTargetFill;
+        ctx.fillStyle = isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       ctx.fillStyle = colors.grid;
@@ -305,7 +305,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       if (rowSpan > 1) {
         const mergedFill = isColumnDropTarget
-          ? colors.columnDropTargetFill
+          ? (isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill)
           : annotation?.type === 'background'
           ? annotation.color
           : isSelectedCell || isRangeCell
@@ -326,7 +326,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       if (colSpan > 1 && !verticalBorderless) {
         const mergedFill = isColumnDropTarget
-          ? colors.columnDropTargetFill
+          ? (isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill)
           : annotation?.type === 'background'
           ? annotation.color
           : isSelectedCell || isRangeCell
@@ -517,10 +517,12 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.rect(leftFixedWidth, extensionTop, Math.max(0, rightFixedLeft - leftFixedWidth), extensionHeight);
         ctx.clip();
       }
-      ctx.fillStyle = colors.columnDropTargetFill;
       for (let columnIndex = columnDropTarget.startIndex; columnIndex <= columnDropTarget.endIndex; columnIndex += 1) {
         if (layer === 'scroll' ? columns[columnIndex]?.fixed !== undefined : columns[columnIndex]?.fixed !== layer) continue;
         if (layer === 'scroll' && (columnIndex < range.columnStart || columnIndex >= range.columnEnd)) continue;
+        ctx.fillStyle = selectedColumnKeys.has(columns[columnIndex].key)
+          ? colors.axisSelectionFill
+          : colors.columnDropTargetFill;
         ctx.fillRect(getColumnX(columnIndex), extensionTop, metrics[columnIndex].width, extensionHeight);
       }
       ctx.restore();
@@ -558,7 +560,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
     if (isColumnDropTarget) {
-      ctx.fillStyle = colors.columnDropTargetFill;
+      ctx.fillStyle = isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill;
       ctx.fillRect(x, headerY, metric.width, headerHeight);
     }
     ctx.fillStyle = colors.grid;
