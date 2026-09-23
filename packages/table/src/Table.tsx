@@ -597,6 +597,8 @@ function TableInner<Row extends object>({
     sourceIndex: number;
     left: number;
     width: number;
+    snapshot: string;
+    sourceLeft: number;
   } | null>(null);
   const [columnDropTarget, setColumnDropTarget] = useState<{ startIndex: number; endIndex: number } | null>(null);
 
@@ -1201,6 +1203,9 @@ function TableInner<Row extends object>({
       axisSelectionFill: isSelectedColumnDrag || isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-fill', '#e8f2ff'),
+      axisSelectionStripeFill: isSelectedColumnDrag || isSelectedColumnDropTarget
+        ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-fill', '#d8e8f8')
+        : readThemeColor(themeStyles, '--rvg-color-axis-selection-stripe-fill', '#dfeeff'),
       axisSelectionText: isSelectedColumnDrag || isSelectedColumnDropTarget
         ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#325b88')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
@@ -1839,11 +1844,18 @@ function TableInner<Row extends object>({
     onColumnResize?.(columnKey, width);
   }, [onColumnResize]);
 
-  const locateHeaderAction = useCallback((clientX: number, columnIndex: number): 'sort' | 'filter' | null => {
+  const locateHeaderAction = useCallback((clientX: number, clientY: number, columnIndex: number): 'sort' | 'filter' | null => {
     if (columnIndex < 0 || !canvasRef.current) return null;
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return null;
-    const localX = clientX - canvasRef.current.getBoundingClientRect().left;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const headerY = fixedHeader ? 0 : -scrollRef.current.top;
+    const actionTop = headerY + headerLeafTop + (column.renderHeader
+      ? 8 + Math.max(0, (16 - headerActionSize) / 2)
+      : (headerLeafHeight - headerActionSize) / 2);
+    if (localY < actionTop - 4 || localY > actionTop + headerActionSize + 4) return null;
     const columnRight = getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width;
     const visibleActions = getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth);
     let right = columnRight - (visibleActions.drag ? headerActionSlotWidth : 2);
@@ -1853,7 +1865,7 @@ function TableInner<Row extends object>({
     }
     if (visibleActions.filter && localX >= right - headerActionSlotWidth && localX < right) return 'filter';
     return null;
-  }, [columnDraggable, columns, getDisplayedColumnLeft, headerActionSlotWidth, measureHeaderTitleWidth, metrics]);
+  }, [columnDraggable, columns, fixedHeader, getDisplayedColumnLeft, headerActionSize, headerActionSlotWidth, headerLeafHeight, headerLeafTop, measureHeaderTitleWidth, metrics]);
 
   const isHeaderTitleTruncated = useCallback((columnIndex: number): boolean => {
     const canvas = canvasRef.current;
@@ -1866,15 +1878,22 @@ function TableInner<Row extends object>({
     return getHeaderTitleRequiredWidth(column, titleWidth) > Math.max(0, metric.width - actionWidth);
   }, [columnDraggable, columns, headerActionSlotWidth, measureHeaderTitleWidth, metrics]);
 
-  const locateHeaderDragHandle = useCallback((clientX: number, columnIndex: number): boolean => {
+  const locateHeaderDragHandle = useCallback((clientX: number, clientY: number, columnIndex: number): boolean => {
     if (!columnDraggable || columnIndex < 0 || !canvasRef.current) return false;
     const column = columns[columnIndex];
     if (column.rowSelection || column.rowDragHandle || column.rowNumber) return false;
     if (!getVisibleHeaderActions(column, metrics[columnIndex].width, columnDraggable, measureHeaderTitleWidth(columnIndex), headerActionSlotWidth).drag) return false;
-    const localX = clientX - canvasRef.current.getBoundingClientRect().left;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const headerY = fixedHeader ? 0 : -scrollRef.current.top;
+    const actionTop = headerY + headerLeafTop + (column.renderHeader
+      ? 8 + Math.max(0, (16 - headerActionSize) / 2)
+      : (headerLeafHeight - headerActionSize) / 2);
+    if (localY < actionTop - 4 || localY > actionTop + headerActionSize + 4) return false;
     const columnRight = getDisplayedColumnLeft(columnIndex) + metrics[columnIndex].width;
     return localX >= columnRight - headerActionSlotWidth && localX < columnRight - 2;
-  }, [columnDraggable, columns, getDisplayedColumnLeft, headerActionSlotWidth, measureHeaderTitleWidth, metrics]);
+  }, [columnDraggable, columns, fixedHeader, getDisplayedColumnLeft, headerActionSize, headerActionSlotWidth, headerLeafHeight, headerLeafTop, measureHeaderTitleWidth, metrics]);
 
   const getHeaderCellLeft = useCallback((cell: HeaderCell<Row>) => {
     const startMetric = metrics[cell.startIndex];
@@ -1957,9 +1976,9 @@ function TableInner<Row extends object>({
     locateHeaderResizeHit(clientX, clientY)?.cell ?? null
   ), [locateHeaderResizeHit]);
 
-  const locateHeaderCellDragHandle = useCallback((clientX: number, cell: HeaderCell<Row>): boolean => {
+  const locateHeaderCellDragHandle = useCallback((clientX: number, clientY: number, cell: HeaderCell<Row>): boolean => {
     if (!columnDraggable || !canvasRef.current) return false;
-    if (cell.leaf) return locateHeaderDragHandle(clientX, cell.startIndex);
+    if (cell.leaf) return locateHeaderDragHandle(clientX, clientY, cell.startIndex);
     const localX = clientX - canvasRef.current.getBoundingClientRect().left;
     const right = getHeaderCellLeft(cell) + getHeaderCellWidth(cell);
     return localX >= right - headerActionSlotWidth && localX < right - 2;
@@ -2671,8 +2690,10 @@ function TableInner<Row extends object>({
       sourceIndex: sourceCell.startIndex,
       left: Math.max(4, Math.min(viewport.width - previewWidth - 4, clientX - rootRect.left - previewWidth / 2)),
       width: previewWidth,
+      snapshot: canvas.toDataURL(),
+      sourceLeft: getDisplayedColumnLeft(sourceCell.startIndex),
     });
-  }, [metrics, viewport.width]);
+  }, [getDisplayedColumnLeft, metrics, viewport.width]);
 
   const activateColumnOrderPointerDrag = useCallback((canvas: HTMLCanvasElement, clientX: number) => {
     const drag = columnOrderDragRef.current;
@@ -2693,7 +2714,7 @@ function TableInner<Row extends object>({
     if (!columnDraggable || event.button !== 0 || columnDragRef.current) return;
     const sourceCell = locateHeaderCell(event.clientX, event.clientY);
     if (!sourceCell || locateHeaderResizeCell(event.clientX, event.clientY)) return;
-    if (sourceCell.leaf && locateHeaderAction(event.clientX, sourceCell.startIndex)) return;
+    if (sourceCell.leaf && locateHeaderAction(event.clientX, event.clientY, sourceCell.startIndex)) return;
     const sourceColumn = columns[sourceCell.startIndex];
     if (!sourceColumn || sourceColumn.rowSelection || sourceColumn.rowDragHandle || sourceColumn.rowNumber) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -3795,8 +3816,8 @@ function TableInner<Row extends object>({
               current === nextHoveredHeaderColumnIndex ? current : nextHoveredHeaderColumnIndex
             ));
             const hoveredHeaderCell = inHeader ? locateHeaderCell(event.clientX, event.clientY) : null;
-            const hoveredAction = inLeafHeader ? locateHeaderAction(event.clientX, columnIndex) : null;
-            const hoveredDragHandle = Boolean(hoveredHeaderCell && locateHeaderCellDragHandle(event.clientX, hoveredHeaderCell));
+            const hoveredAction = inLeafHeader ? locateHeaderAction(event.clientX, event.clientY, columnIndex) : null;
+            const hoveredDragHandle = Boolean(hoveredHeaderCell && locateHeaderCellDragHandle(event.clientX, event.clientY, hoveredHeaderCell));
             const hoveredDragColumnIndex = hoveredHeaderCell?.startIndex ?? columnIndex;
             const customHeaderTooltipMatch = inHeader && !hoveredAction && !hoveredDragHandle
               ? locateCustomHeaderTooltip(event.clientX, event.clientY, columnIndex)
@@ -3951,7 +3972,7 @@ function TableInner<Row extends object>({
               && columnIndex >= 0
               && Boolean(columns[columnIndex].rowDragHandle)
               && locateRow(event.clientY) >= 0;
-            if ((headerDragCell && locateHeaderCellDragHandle(event.clientX, headerDragCell)) || rowDragHandle) {
+            if ((headerDragCell && locateHeaderCellDragHandle(event.clientX, event.clientY, headerDragCell)) || rowDragHandle) {
               hideDragTooltips();
               document.documentElement.classList.add('rvg-is-dragging');
               event.currentTarget.style.cursor = 'move';
@@ -3986,7 +4007,7 @@ function TableInner<Row extends object>({
               clickedCellRef.current = null;
               if (localY < headerY + headerLeafTop) return;
               const columnIndex = locateColumn(event.clientX);
-              const action = locateHeaderAction(event.clientX, columnIndex);
+              const action = locateHeaderAction(event.clientX, event.clientY, columnIndex);
               if (action === 'sort') {
                 const columnKey = columns[columnIndex].key;
                 const next = sortState?.columnKey !== columnKey
@@ -4002,7 +4023,7 @@ function TableInner<Row extends object>({
                 setFilterEditor({ columnIndex, left, top: Math.max(0, headerY + headerHeight), draft: filterValues[columns[columnIndex].key] ?? '' });
                 return;
               }
-              if (locateHeaderDragHandle(event.clientX, columnIndex)) return;
+              if (locateHeaderDragHandle(event.clientX, event.clientY, columnIndex)) return;
               if (columnIndex >= 0 && columns[columnIndex].rowSelection && rowSelection) {
                 if (columns[columnIndex].rowSelectionIndicator === 'arrow' || columns[columnIndex].rowSelectionIndicator === 'none') return;
                 setSelectionRange(null);
@@ -4515,6 +4536,10 @@ function TableInner<Row extends object>({
             top: 0,
             width: columnDragPreview.width,
             height: renderHeight,
+            backgroundImage: `url(${columnDragPreview.snapshot})`,
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: `-${columnDragPreview.sourceLeft}px 0`,
+            backgroundSize: `${viewport.width}px ${renderHeight}px`,
           }}
         >
           <div

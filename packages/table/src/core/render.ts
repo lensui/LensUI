@@ -74,6 +74,7 @@ const COLORS = {
   selection: '#1677ff',
   selectionFill: '#edf4ff',
   axisSelectionFill: '#e8f2ff',
+  axisSelectionStripeFill: '#dfeeff',
   axisSelectionText: '#202124',
   rowHoverFill: '#f6f9fc',
   editedFill: '#fff1b8',
@@ -112,6 +113,11 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
   const headerLeafTop = options.headerLeafTop ?? 0;
   const headerLeafHeight = options.headerLeafHeight ?? headerHeight;
   const colors = { ...COLORS, ...options.colors };
+  const getAxisSelectionFill = (rowIndex: number, columnKey: string) => (
+    selectedColumnKeys.has(columnKey) && striped && rowIndex % 2 === 1
+      ? colors.axisSelectionStripeFill
+      : colors.axisSelectionFill
+  );
   const bodyTop = options.bodyTop ?? headerHeight;
   const getCellSpan = (rowIndex: number, columnIndex: number) => options.cellSpans.get(getCellCoordKey(rowIndex, columnIndex));
   const getCellWidth = (columnIndex: number, colSpan: number) => {
@@ -256,7 +262,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       if (isAxisSelected) {
-        ctx.fillStyle = colors.axisSelectionFill;
+        ctx.fillStyle = getAxisSelectionFill(rowIndex, column.key);
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       if (hoveredRowIndex === rowIndex) {
@@ -292,7 +298,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       if (isColumnDropTarget) {
-        ctx.fillStyle = isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill;
+        ctx.fillStyle = isAxisSelected ? getAxisSelectionFill(rowIndex, column.key) : colors.columnDropTargetFill;
         ctx.fillRect(x, y, cellWidth, cellHeight);
       }
       ctx.fillStyle = colors.grid;
@@ -305,7 +311,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       if (rowSpan > 1) {
         const mergedFill = isColumnDropTarget
-          ? (isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill)
+          ? (isAxisSelected ? getAxisSelectionFill(rowIndex, column.key) : colors.columnDropTargetFill)
           : annotation?.type === 'background'
           ? annotation.color
           : isSelectedCell || isRangeCell
@@ -317,7 +323,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
                 : hoveredRowIndex === rowIndex
                   ? colors.rowHoverFill
                     : isAxisSelected
-                    ? colors.axisSelectionFill
+                    ? getAxisSelectionFill(rowIndex, column.key)
                     : cellStyle?.backgroundColor ?? rowStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
         ctx.fillStyle = mergedFill;
         for (let offset = 1; offset < rowSpan; offset += 1) {
@@ -326,7 +332,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       }
       if (colSpan > 1 && !verticalBorderless) {
         const mergedFill = isColumnDropTarget
-          ? (isAxisSelected ? colors.axisSelectionFill : colors.columnDropTargetFill)
+          ? (isAxisSelected ? getAxisSelectionFill(rowIndex, column.key) : colors.columnDropTargetFill)
           : annotation?.type === 'background'
           ? annotation.color
           : isSelectedCell || isRangeCell
@@ -338,7 +344,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
                 : hoveredRowIndex === rowIndex
                   ? colors.rowHoverFill
                     : isAxisSelected
-                    ? colors.axisSelectionFill
+                    ? getAxisSelectionFill(rowIndex, column.key)
                     : cellStyle?.backgroundColor ?? rowStyle?.backgroundColor ?? (striped && rowIndex % 2 === 1 ? colors.stripe : colors.background);
         ctx.fillStyle = mergedFill;
         let offsetLeft = 0;

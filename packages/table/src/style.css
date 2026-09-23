@@ -15,6 +15,7 @@
   --rvg-color-primary-soft: #edf4ff;
   --rvg-color-selection-fill: #edf4ff;
   --rvg-color-axis-selection-fill: #e8f2ff;
+  --rvg-color-axis-selection-stripe-fill: #dfeeff;
   --rvg-color-axis-selection-text: var(--rvg-color-text);
   --rvg-color-axis-selection-drag-fill: #d8e8f8;
   --rvg-color-axis-selection-drag-text: #325b88;
@@ -301,6 +302,7 @@
 .rvg-column-drag-preview-cell { position: absolute; right: 0; left: 0; display: flex; padding: 0 10px; align-items: center; overflow: hidden; border-bottom: 1px solid var(--rvg-color-grid); color: var(--rvg-color-text); font: var(--rvg-font-size-body) Inter, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; text-overflow: clip; box-sizing: border-box; }
 .rvg-column-drag-preview-header { background: var(--rvg-color-header-bg); color: var(--rvg-color-text); font-weight: 600; }
 .rvg-column-drag-preview-cell.is-striped { background: var(--rvg-color-stripe); }
+.rvg-column-drag-preview-cell { visibility: hidden; }
 .rvg-column-drag-preview.is-axis-selected { background: var(--rvg-color-axis-selection-fill); }
 .rvg-column-drag-preview.is-axis-selected .rvg-column-drag-preview-cell { border-bottom-color: color-mix(in srgb, var(--rvg-color-axis-selection-text) 34%, transparent); background: var(--rvg-color-axis-selection-fill); }
 .rvg-column-drag-preview-header .rvg-preview-header-icon { position: absolute; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); overflow: visible; color: var(--rvg-color-icon); }
