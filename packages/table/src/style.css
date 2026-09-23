@@ -18,7 +18,7 @@
   --rvg-color-axis-selection-stripe-fill: #dfeeff;
   --rvg-color-axis-selection-text: var(--rvg-color-text);
   --rvg-color-axis-selection-drag-fill: #d8e8f8;
-  --rvg-color-axis-selection-drag-text: #325b88;
+  --rvg-color-axis-selection-drag-text: #fff;
   --rvg-color-column-drop-target-fill: #e2edf9;
   --rvg-color-range-fill: #e8f1ff;
   --rvg-color-row-hover-fill: #f6f9fc;

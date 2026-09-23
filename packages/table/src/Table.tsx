@@ -1208,7 +1208,7 @@ function TableInner<Row extends object>({
       // continue to use the dedicated stripe color in both states.
       axisSelectionStripeFill: readThemeColor(themeStyles, '--rvg-color-axis-selection-stripe-fill', '#dfeeff'),
       axisSelectionText: isSelectedColumnDrag || isSelectedColumnDropTarget
-        ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#325b88')
+        ? readThemeColor(themeStyles, '--rvg-color-axis-selection-drag-text', '#fff')
         : readThemeColor(themeStyles, '--rvg-color-axis-selection-text', readThemeColor(themeStyles, '--rvg-color-text', '#202124')),
       rowHoverFill: readThemeColor(themeStyles, '--rvg-color-row-hover-fill', '#f6f9fc'),
       editedFill: editedCellHighlightColor ?? readThemeColor(themeStyles, '--rvg-color-edited-fill', '#fff1b8'),
@@ -3036,6 +3036,26 @@ function TableInner<Row extends object>({
 
   const headerTooltip = (() => {
     if (!visibleHeaderTooltip) return null;
+    // The pointer usually stays over the icon while sorting/filtering. Refresh
+    // the tooltip label from the current state so it does not remain stale
+    // until the next mouse move.
+    if (visibleHeaderTooltip.action === 'sort' || visibleHeaderTooltip.action === 'filter') {
+      const column = columns[visibleHeaderTooltip.columnIndex];
+      if (column) {
+        const label = visibleHeaderTooltip.action === 'sort'
+          ? sortState?.columnKey === column.key
+            ? sortState.direction === 'asc' ? labels.sortAsc : labels.sortDesc
+            : labels.sortBoth
+          : filterValues[column.key]
+            ? labels.filterWithValue(filterValues[column.key])
+            : labels.filter;
+        return {
+          ...visibleHeaderTooltip,
+          key: `${visibleHeaderTooltip.key}:${label}`,
+          label,
+        };
+      }
+    }
     return visibleHeaderTooltip;
   })();
 
