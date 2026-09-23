@@ -439,7 +439,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
         if (label) {
           // Clip text to the cell rectangle. Canvas does not support CSS text
           // overflow, so clipping is the reliable way to prevent bleed.
-          const padding = 10;
+          const padding = 4;
           const textX = column.align === 'right' ? x + cellWidth - padding : column.align === 'center' ? x + cellWidth / 2 : x + padding;
           ctx.save();
           ctx.beginPath();
