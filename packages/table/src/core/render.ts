@@ -581,7 +581,7 @@ export function paintGrid<Row extends object>(options: PaintOptions<Row>): void 
       const visibleActions = getVisibleHeaderActions(column, metric.width, columnDraggable, titleWidth, headerActionSlotWidth);
       const actionWidth = (Number(visibleActions.drag) + Number(visibleActions.filter) + Number(visibleActions.sort)) * headerActionSlotWidth;
       const contentWidth = Math.max(0, metric.width - actionWidth);
-      const padding = 10;
+      const padding = 4;
       const clipWidth = contentWidth;
       const centeredTextX = metric.width / 2;
       const centerTitleWidth = Math.max(0, Math.min(centeredTextX - padding, contentWidth - padding - centeredTextX) * 2);
