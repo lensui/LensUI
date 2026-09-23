@@ -66,11 +66,11 @@ export function getHeaderActionCount<Row>(column: LayoutColumn<Row>, columnDragg
  * grid edge.
  */
 export function getHeaderTitleRequiredWidth<Row>(column: LayoutColumn<Row>, titleWidth: number): number {
-  // Reserve the header's horizontal padding before exposing action slots.
-  // Without this buffer, a narrow custom header could show all actions even
-  // though its title text still painted underneath the icons.
+  // Keep the legacy capacity for ordinary titles. Long titles in narrow
+  // columns need an extra edge buffer because the rightmost action layer can
+  // otherwise overlap the title; short columns must keep all prior actions.
   const minimumReadableTitleWidth = Math.min(Math.ceil(titleWidth), 28);
-  const horizontalPadding = 24;
+  const horizontalPadding = titleWidth > 48 ? 24 : 0;
   return minimumReadableTitleWidth + horizontalPadding + (column.align === 'center' ? 20 : 22);
 }
 

@@ -85,5 +85,13 @@ describe('virtual layout', () => {
     );
 
     expect(actions).toEqual({ filter: false, sort: false, drag: true });
+
+    expect(getVisibleHeaderActions(
+      { key: 'status', title: 'status', sortable: true, filterable: true },
+      100,
+      true,
+      34,
+      14,
+    )).toEqual({ filter: true, sort: true, drag: true });
   });
 });
