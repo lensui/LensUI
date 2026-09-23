@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildColumnMetrics, getMinimumColumnWidth, getViewportRange, hitTestColumn } from './layout';
+import {
+  buildColumnMetrics,
+  getMinimumColumnWidth,
+  getViewportRange,
+  getVisibleHeaderActions,
+  hitTestColumn,
+} from './layout';
 
 describe('virtual layout', () => {
   const metrics = buildColumnMetrics([{ key: 'a', title: 'A', width: 100 }, { key: 'b', title: 'B', width: 200 }, { key: 'c', title: 'C', width: 80 }]);
@@ -67,5 +73,17 @@ describe('virtual layout', () => {
   it('respects a compact custom width for the row selection column', () => {
     expect(getMinimumColumnWidth({ key: 'selection', title: '', rowSelection: true, width: 28 })).toBe(28);
     expect(getMinimumColumnWidth({ key: 'selection', title: '', rowSelection: true, width: 12 })).toBe(24);
+  });
+
+  it('hides header actions that would overlap a narrow long-title column', () => {
+    const actions = getVisibleHeaderActions(
+      { key: 'created_at', title: 'created_at', sortable: true, filterable: true },
+      100,
+      true,
+      60,
+      14,
+    );
+
+    expect(actions).toEqual({ filter: false, sort: false, drag: true });
   });
 });

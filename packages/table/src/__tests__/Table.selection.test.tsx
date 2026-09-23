@@ -19,6 +19,20 @@ afterEach(() => {
 });
 
 describe('Table column reorder placement', () => {
+  it('keeps configured column widths when viewport stretching is disabled', () => {
+    const fixedColumns: GridColumn<(typeof rows)[number]>[] = [
+      { key: 'id', title: 'ID', dataIndex: 'id', width: 100 },
+      { key: 'name', title: 'Name', dataIndex: 'name', width: 100 },
+    ];
+    const view = render(
+      <Table columns={fixedColumns} rows={rows} rowNumber={false} stretchColumns={false} />,
+    );
+    const headers = [...view.container.querySelectorAll<HTMLElement>('.rvg-header-title')];
+
+    expect(headers.length).toBeGreaterThanOrEqual(2);
+    expect(headers.slice(0, 2).map((header) => header.style.width)).toEqual(['100px', '100px']);
+  });
+
   it('resolves insertion indices consistently in both drag directions', () => {
     expect(resolveColumnDropIndex(0, 2, 'left', 4)).toBe(1);
     expect(resolveColumnDropIndex(0, 2, 'right', 4)).toBe(2);
@@ -360,11 +374,13 @@ describe('Table utility column options', () => {
     const view = render(<Table columns={actionColumns} rows={rows} rowNumber={false} columnDraggable />);
     const icons = [...view.container.querySelectorAll<HTMLElement>('.rvg-header-icon')];
     const header = view.container.querySelector<HTMLElement>('.rvg-header-title.is-custom')!;
+    const interactiveHeader = view.container.querySelector<HTMLElement>('.rvg-header-group.is-custom')!;
 
     expect(icons.length).toBe(3);
     expect(header.style.getPropertyValue('--rvg-header-action-width')).toBe('48px');
     expect(header.style.width).toBe('400px');
     expect(header.querySelector<HTMLElement>(':scope > span')?.style.width).toBe('100%');
+    expect(interactiveHeader.style.paddingRight).toBe('10px');
     expect(header.classList.contains('is-header-hovered')).toBe(false);
     fireEvent.mouseMove(view.container.querySelector('canvas')!, { clientX: 80, clientY: 10 });
     expect(header.classList.contains('is-header-hovered')).toBe(true);

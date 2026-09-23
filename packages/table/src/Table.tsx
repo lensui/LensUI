@@ -337,6 +337,7 @@ function TableInner<Row extends object>({
   rows: sourceRows,
   rowKey,
   width = '100%',
+  stretchColumns = true,
   height = '100%',
   autoHeight = true,
   layout,
@@ -922,8 +923,8 @@ function TableInner<Row extends object>({
   const hasManualColumnWidths = Object.keys(resizedColumnWidths).length > 0;
   const metrics = useMemo(() => buildColumnMetrics(columns, {
     columnDraggable,
-    viewportWidth: hasManualColumnWidths ? 0 : viewport.width,
-  }), [columnDraggable, columns, hasManualColumnWidths, viewport.width]);
+    viewportWidth: !stretchColumns || hasManualColumnWidths ? 0 : viewport.width,
+  }), [columnDraggable, columns, hasManualColumnWidths, stretchColumns, viewport.width]);
   const contentWidth = metrics.length > 0 ? metrics[metrics.length - 1].right : 0;
   const contentHeight = rows.length * rowHeight;
   const fixedWidth = useMemo(() => columns.reduce((width, column, index) => column.fixed === 'left' ? width + metrics[index].width : width, 0), [columns, metrics]);
@@ -3417,7 +3418,10 @@ function TableInner<Row extends object>({
           top: headerTop,
           width,
           height: rowHeightForLevel,
-          paddingRight: cell.leaf ? actionWidth + 10 : 10,
+          // Custom headers lay out their own title row and metadata rows. The
+          // action layer may reserve space in the title row, but must not
+          // shrink the entire custom header (including type/comment rows).
+          paddingRight: cell.leaf && !column.renderHeader ? actionWidth + 10 : 10,
           justifyContent: column.align === 'right' ? 'flex-end' : column.align === 'center' ? 'center' : 'flex-start',
           textAlign: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
         }}
